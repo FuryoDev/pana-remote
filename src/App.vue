@@ -1,43 +1,75 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import CameraTestButton from './components/CameraTestButton.vue'
 import StreamPreviewPanel from './components/StreamPreviewPanel.vue'
+import { useCameraStatus } from './components/useCameraStatus'
 
+/** --- Streaming controls (codex) --- */
 type StreamProtocol = 'rtmp' | 'srt' | 'ts'
-
 const protocolOptions: StreamProtocol[] = ['rtmp', 'srt', 'ts']
 const selectedProtocol = ref<StreamProtocol>('rtmp')
-const isStreaming = ref(false)
-const isLoading = ref(false)
+
+const isStreaming = ref(false)              // piloté localement + synchronisé avec l’état caméra
+const isLoadingAction = ref(false)          // chargement pour start/stop
 const errorMessage = ref<string | null>(null)
 
 const streamingLabel = computed(() => (isStreaming.value ? 'Streaming' : 'Idle'))
 
+/** --- Camera status (main) --- */
+const {
+  status,
+  isLoading: isLoadingStatus,  // renommé pour éviter le conflit avec les actions start/stop
+  isRefreshing,
+  error,
+  lastUpdated,
+  refresh,
+} = useCameraStatus()
+
+const formattedLastUpdated = computed(() => {
+  if (!lastUpdated.value) return '—'
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+  }).format(lastUpdated.value)
+})
+
+const streamingState = computed(() => {
+  const s = status.value?.streaming
+  return typeof s === 'boolean' ? (s ? 'On' : 'Off') : 'Unknown'
+})
+
+/** Synchronise l’état local avec l’état caméra lorsqu’il arrive/évolue */
+watch(
+  () => status.value?.streaming,
+  (val) => {
+    if (typeof val === 'boolean') isStreaming.value = val
+  },
+  { immediate: true }
+)
+
+/** Lance/arrête le stream et rafraîchit l’état global */
 async function sendStreamCommand(command: 'start' | 'stop') {
   errorMessage.value = null
-  isLoading.value = true
-
+  isLoadingAction.value = true
   try {
-    const response = await fetch(
-      `/api/stream/${selectedProtocol.value}/${command}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      }
-    )
+    const response = await fetch(`/api/stream/${selectedProtocol.value}/${command}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    })
 
     if (!response.ok) {
       const body = await response.json().catch(() => ({}))
       throw new Error(body?.error || 'Unable to control stream')
     }
 
+    // On reflète immédiatement côté UI…
     isStreaming.value = command === 'start'
-  } catch (error: any) {
-    errorMessage.value = error.message || String(error)
+    // …et on synchronise l’état avec la caméra (source de vérité)
+    await refresh()
+  } catch (e: any) {
+    errorMessage.value = e?.message || String(e)
   } finally {
-    isLoading.value = false
+    isLoadingAction.value = false
   }
 }
 
@@ -45,6 +77,7 @@ function handleProtocolChange(event: Event) {
   const target = event.target as HTMLSelectElement | null
   if (!target) return
   selectedProtocol.value = target.value as StreamProtocol
+  // on remet l’état visuel à neutre ; le prochain refresh donnera la vérité
   isStreaming.value = false
   errorMessage.value = null
 }
@@ -60,6 +93,45 @@ function handleProtocolChange(event: Event) {
       <CameraTestButton />
     </header>
 
+    <!-- Carte d’état (branche main) -->
+    <section
+      class="status-card"
+      :class="{ 'status-card--error': error, 'status-card--loading': isLoadingStatus }"
+    >
+      <div class="status-card__header">
+        <h2>État de la caméra</h2>
+        <button
+          type="button"
+          class="status-card__refresh-btn"
+          @click="refresh"
+          :disabled="isLoadingStatus || isRefreshing"
+        >
+          {{ isRefreshing ? 'Actualisation…' : 'Actualiser' }}
+        </button>
+      </div>
+
+      <div v-if="isLoadingStatus" class="status-card__state">Chargement de l'état…</div>
+      <div v-else-if="error" class="status-card__state status-card__state--error">
+        <p>Impossible de joindre la caméra.</p>
+        <p class="status-card__error">{{ error }}</p>
+      </div>
+      <dl v-else class="status-card__details">
+        <div>
+          <dt>UID</dt>
+          <dd>{{ status?.uid }}</dd>
+        </div>
+        <div>
+          <dt>Streaming</dt>
+          <dd>{{ streamingState }}</dd>
+        </div>
+        <div>
+          <dt>Dernière actualisation</dt>
+          <dd>{{ formattedLastUpdated }}</dd>
+        </div>
+      </dl>
+    </section>
+
+    <!-- Contrôles + aperçu (branche codex) -->
     <section class="controls">
       <label class="select-label">
         Protocol
@@ -78,21 +150,21 @@ function handleProtocolChange(event: Event) {
         <button
           type="button"
           class="action-button start"
-          :disabled="isLoading || isStreaming"
+          :disabled="isLoadingAction || isStreaming"
           :aria-pressed="isStreaming"
           @click="sendStreamCommand('start')"
         >
-          <span v-if="isLoading && !isStreaming" class="loader" aria-hidden="true" />
+          <span v-if="isLoadingAction && !isStreaming" class="loader" aria-hidden="true" />
           <span>{{ isStreaming ? 'Streaming…' : 'Start stream' }}</span>
         </button>
         <button
           type="button"
           class="action-button stop"
-          :disabled="isLoading || !isStreaming"
+          :disabled="isLoadingAction || !isStreaming"
           :aria-pressed="!isStreaming"
           @click="sendStreamCommand('stop')"
         >
-          <span v-if="isLoading && isStreaming" class="loader" aria-hidden="true" />
+          <span v-if="isLoadingAction && isStreaming" class="loader" aria-hidden="true" />
           <span>{{ isStreaming ? 'Stop stream' : 'Stopped' }}</span>
         </button>
       </div>
@@ -146,17 +218,110 @@ function handleProtocolChange(event: Event) {
 .app-header {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 1.5rem;
-  text-align: left;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+  text-align: center;
+  padding: 2rem;
+  background: #f9fafb;
 }
 
-@media (min-width: 768px) {
-  .app-header {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
+header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.status-card {
+  width: min(100%, 28rem);
+  background: #ffffff;
+  border-radius: 1rem;
+  border: 1px solid rgba(15, 118, 110, 0.15);
+  box-shadow: 0 20px 50px -20px rgba(13, 148, 136, 0.3);
+  padding: 1.75rem;
+  text-align: left;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.status-card--error {
+  border-color: rgba(220, 38, 38, 0.4);
+  box-shadow: 0 20px 50px -20px rgba(220, 38, 38, 0.25);
+}
+
+.status-card--loading {
+  opacity: 0.75;
+}
+
+.status-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.status-card__refresh-btn {
+  padding: 0.35rem 0.9rem;
+  border-radius: 9999px;
+  border: none;
+  background: #0f766e;
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.status-card__refresh-btn:disabled {
+  cursor: not-allowed;
+  background: #94a3b8;
+}
+
+.status-card__refresh-btn:not(:disabled):hover {
+  background: #0d9488;
+}
+
+.status-card__refresh-btn:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+.status-card__state {
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+
+.status-card__state--error {
+  color: #b91c1c;
+}
+
+.status-card__error {
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+  color: #7f1d1d;
+}
+
+.status-card__details {
+  display: grid;
+  gap: 1rem;
+}
+
+.status-card__details div {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.status-card__details dt {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.status-card__details dd {
+  margin: 0;
+  font-size: 1.05rem;
+  color: #0f172a;
+  font-weight: 600;
 }
 
 h1 {

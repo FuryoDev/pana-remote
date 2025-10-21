@@ -9,6 +9,17 @@ export interface CameraStatus {
   streaming: string
 }
 
+export class CameraStatusError extends Error {
+  readonly cause?: unknown
+
+  constructor(message: string, cause?: unknown) {
+    super(message)
+    this.name = 'CameraStatusError'
+    this.cause = cause
+    Object.setPrototypeOf(this, new.target.prototype)
+  }
+}
+
 export class PanasonicCameraService {
   constructor(private readonly client: PanasonicCameraClient) {}
 
@@ -41,8 +52,12 @@ export class PanasonicCameraService {
   }
 
   async status(): Promise<CameraStatus> {
-    const uid = await this.client.getUid()
-    const streaming = await this.client.getStreamStat(uid)
-    return { uid, streaming }
+    try {
+      const uid = await this.client.getUid()
+      const streaming = await this.client.getStreamStat(uid)
+      return { uid, streaming }
+    } catch (error) {
+      throw new CameraStatusError('Failed to retrieve camera status', error)
+    }
   }
 }

@@ -89,5 +89,20 @@ app.post('/api/camera/test-move', async (_req, res) => {
   }
 })
 
+app.get('/api/status', async (_req, res) => {
+  const timestamp = new Date().toISOString()
+
+  try {
+    const status = await service.status()
+    res.json({ reachable: true, status, timestamp })
+  } catch (error: any) {
+    log.error(error)
+    const message = error?.message ?? 'Unable to retrieve camera status'
+    const details = error?.cause && typeof error.cause === 'object' && 'message' in error.cause ? error.cause.message : undefined
+
+    res.json({ reachable: false, error: message, ...(details ? { details } : {}), timestamp })
+  }
+})
+
 const port = Number(process.env.PORT || 3000)
 app.listen(port, () => log.info(`API on http://localhost:${port}`))
