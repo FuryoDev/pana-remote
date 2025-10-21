@@ -36,6 +36,26 @@ app.post('/api/preset/recall', async (req, res) => {
   }
 })
 
+app.get('/api/preset/:n/thumbnail', async (req, res) => {
+  try {
+    const preset = Number.parseInt(req.params.n ?? '', 10)
+
+    if (!Number.isInteger(preset) || preset < 1 || preset > 100) {
+      return res.status(400).json({ error: 'invalid preset number' })
+    }
+
+    const { buffer, contentType } = await service.presetThumbnail(preset)
+
+    res.setHeader('Content-Type', contentType)
+    res.setHeader('Content-Length', buffer.length.toString())
+    res.setHeader('Cache-Control', 'no-store')
+    res.send(buffer)
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
 app.post('/api/ptz/stop', async (_req, res) => {
   try {
     const response = await service.ptzStop()

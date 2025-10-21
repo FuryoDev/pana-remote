@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import CameraTestButton from './components/CameraTestButton.vue'
+import PresetGrid from './components/PresetGrid.vue'
 </script>
 
 <template>
   <main class="app">
-    <header>
+    <header class="hero">
       <h1>Panasonic Remote Control</h1>
       <p>Envoyez une commande simple pour vérifier la connexion avec la caméra.</p>
     </header>
-    <CameraTestButton />
+    <div class="actions">
+      <CameraTestButton />
+    </div>
+    <PresetGrid />
   </main>
 </template>
 
@@ -18,19 +22,30 @@ import CameraTestButton from './components/CameraTestButton.vue'
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 2rem;
+  gap: 2.5rem;
   text-align: center;
-  padding: 2rem;
+  padding: 3rem 1.5rem 4rem;
 }
 
-h1 {
+.hero {
+  max-width: 36rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.hero h1 {
   font-size: clamp(2rem, 4vw, 2.75rem);
-  margin-bottom: 0.5rem;
+  margin: 0;
 }
 
-p {
+.hero p {
   color: #6b7280;
-  max-width: 28rem;
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  justify-content: center;
 }
 </style>
