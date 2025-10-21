@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 225" role="img" aria-labelledby="title desc">
+  <title id="title">Camera preview placeholder</title>
+  <desc id="desc">Decorative gradient background with camera icon</desc>
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1f2937" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+  </defs>
+  <rect width="400" height="225" fill="url(#grad)" rx="16" />
+  <g fill="none" stroke="#38bdf8" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="120" y="70" width="160" height="100" rx="18" />
+    <circle cx="200" cy="120" r="28" />
+    <path d="M258 95l40-20v80l-40-20" />
+  </g>
+  <text x="200" y="200" font-size="18" text-anchor="middle" fill="#f8fafc" font-family="'Inter', 'Segoe UI', sans-serif">
+    Stream preview inactive
+  </text>
+</svg>

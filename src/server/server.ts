@@ -2,7 +2,11 @@ import cors from 'cors'
 import express from 'express'
 import { log } from '../lib/logger.js'
 import { PanasonicCameraClient, PanasonicCameraService } from '../lib/panasonic/index.js'
-import type { ZoomDirection } from '../lib/panasonic/control.js'
+import type {
+  StreamCommand,
+  StreamProtocol,
+  ZoomDirection,
+} from '../lib/panasonic/control.js'
 
 const app = express()
 app.use(cors())
@@ -29,6 +33,32 @@ app.post('/api/preset/recall', async (req, res) => {
   try {
     const preset = Number(req.body?.n ?? 1)
     const response = await service.presetRecall(preset)
+    res.send(response)
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+const STREAM_PROTOCOLS: StreamProtocol[] = ['rtmp', 'srt', 'ts']
+const STREAM_COMMANDS: StreamCommand[] = ['start', 'stop']
+
+app.post('/api/stream/:protocol/:command', async (req, res) => {
+  try {
+    const { protocol, command } = req.params as {
+      protocol: StreamProtocol
+      command: StreamCommand
+    }
+
+    if (!STREAM_PROTOCOLS.includes(protocol)) {
+      return res.status(400).json({ error: 'Unsupported stream protocol' })
+    }
+
+    if (!STREAM_COMMANDS.includes(command)) {
+      return res.status(400).json({ error: 'Unsupported stream command' })
+    }
+
+    const response = await service.stream(protocol, command)
     res.send(response)
   } catch (error: any) {
     log.error(error)
