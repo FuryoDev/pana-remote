@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import CameraTestButton from './components/CameraTestButton.vue'
+import PresetGrid from './components/PresetGrid.vue'
 import { useCameraStatus } from './components/useCameraStatus'
 
 const { status, isLoading, isRefreshing, error, lastUpdated, refresh } = useCameraStatus()
@@ -18,10 +19,14 @@ const streamingState = computed(() => status.value?.streaming ?? 'Unknown')
 
 <template>
   <main class="app">
-    <header>
+    <header class="hero">
       <h1>Panasonic Remote Control</h1>
       <p>Envoyez une commande simple pour vérifier la connexion avec la caméra.</p>
     </header>
+
+    <div class="actions">
+      <CameraTestButton />
+    </div>
 
     <section
       class="status-card"
@@ -29,7 +34,12 @@ const streamingState = computed(() => status.value?.streaming ?? 'Unknown')
     >
       <div class="status-card__header">
         <h2>État de la caméra</h2>
-        <button type="button" class="status-card__refresh-btn" @click="refresh" :disabled="isLoading || isRefreshing">
+        <button
+          type="button"
+          class="status-card__refresh-btn"
+          @click="refresh"
+          :disabled="isLoading || isRefreshing"
+        >
           {{ isRefreshing ? 'Actualisation…' : 'Actualiser' }}
         </button>
       </div>
@@ -55,7 +65,7 @@ const streamingState = computed(() => status.value?.streaming ?? 'Unknown')
       </dl>
     </section>
 
-    <CameraTestButton />
+    <PresetGrid />
   </main>
 </template>
 
@@ -65,18 +75,32 @@ const streamingState = computed(() => status.value?.streaming ?? 'Unknown')
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 2rem;
+  gap: 2.5rem;
   text-align: center;
-  padding: 2rem;
+  padding: 3rem 1.5rem 4rem;
   background: #f9fafb;
 }
 
-header {
+.hero {
+  max-width: 36rem;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
+}
+
+.hero h1 {
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  margin: 0;
+}
+
+.hero p {
+  color: #6b7280;
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  justify-content: center;
 }
 
 .status-card {
@@ -168,15 +192,5 @@ header {
   font-size: 1.05rem;
   color: #0f172a;
   font-weight: 600;
-}
-
-h1 {
-  font-size: clamp(2rem, 4vw, 2.75rem);
-  margin-bottom: 0.5rem;
-}
-
-p {
-  color: #6b7280;
-  max-width: 28rem;
 }
 </style>

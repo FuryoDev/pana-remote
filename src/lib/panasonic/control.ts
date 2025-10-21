@@ -9,6 +9,11 @@ export interface CameraStatus {
   streaming: string
 }
 
+/** Formate le numéro de preset sur 2 chiffres (ex: 1 -> "01") */
+function formatPresetNumber(presetNumber: number) {
+  return String(presetNumber).padStart(2, '0')
+}
+
 export class CameraStatusError extends Error {
   readonly cause?: unknown
 
@@ -29,8 +34,13 @@ export class PanasonicCameraService {
   }
 
   async presetRecall(presetNumber: number) {
-    const formatted = String(presetNumber).padStart(2, '0')
+    const formatted = formatPresetNumber(presetNumber)
     return this.client.aw_ptz(`R${formatted}`, '1')
+  }
+
+  async presetThumbnail(presetNumber: number) {
+    const formatted = formatPresetNumber(presetNumber)
+    return this.client.getPresetThumbnail(formatted)
   }
 
   async ptzStop() {
