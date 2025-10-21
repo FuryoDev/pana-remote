@@ -1,44 +1,109 @@
-import express from 'express'
 import cors from 'cors'
-import { PanasonicClient } from '../clients/panasonicClient.js'
-import { CameraService } from '../services/camera-service.js'
-import { log } from '../logger.js'
+import express from 'express'
+import { log } from '../lib/logger.js'
+import { PanasonicCameraClient, PanasonicCameraService } from '../lib/panasonic/index.js'
+import type { StreamCommand, StreamProtocol, ZoomDirection } from '../lib/panasonic/control.js'
 
 const app = express()
 app.use(cors())
 app.use(express.json())
 
-const svc = new CameraService(new PanasonicClient())
+const service = new PanasonicCameraService(new PanasonicCameraClient())
 
-// I1: trois endpoints
 app.post('/api/zoom', async (req, res) => {
-    try {
-        const dir = req.body?.dir as 'in'|'out'|'stop'
-        if (!dir) return res.status(400).json({ error: 'dir required' })
-        const out = await svc.zoom(dir)
-        res.send(out)
-    } catch (e:any) {
-        log.error(e); res.status(500).json({ error: e.message })
+  try {
+    const direction = req.body?.dir as ZoomDirection | undefined
+    if (!direction) {
+      return res.status(400).json({ error: 'dir required' })
     }
+
+    const response = await service.zoom(direction)
+    res.send(response)
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
 })
 
 app.post('/api/preset/recall', async (req, res) => {
-    try {
-        const n = Number(req.body?.n ?? 1)
-        const out = await svc.presetRecall(n)
-        res.send(out)
-    } catch (e:any) {
-        log.error(e); res.status(500).json({ error: e.message })
-    }
+  try {
+    const preset = Number(req.body?.n ?? 1)
+    const response = await service.presetRecall(preset)
+    res.send(response)
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
 })
 
 app.post('/api/ptz/stop', async (_req, res) => {
-    try {
-        const out = await svc.ptzStop()
-        res.send(out)
-    } catch (e:any) {
-        log.error(e); res.status(500).json({ error: e.message })
+  try {
+    const response = await service.ptzStop()
+    res.send(response)
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.post('/api/camera/test-move', async (_req, res) => {
+  try {
+    await service.zoom('in')
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    await service.ptzStop()
+
+    res.json({ message: 'Commande envoyée à la caméra' })
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.get('/api/camera/status', async (_req, res) => {
+  try {
+    const status = await service.status()
+    res.json({ ...status, receivedAt: new Date().toISOString() })
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.get('/api/preset/:preset/thumbnail', async (req, res) => {
+  try {
+    const preset = Number.parseInt(req.params.preset ?? '', 10)
+    if (!Number.isFinite(preset)) {
+      return res.status(400).json({ error: 'preset must be numeric' })
     }
+
+    const { buffer, mimeType } = await service.presetThumbnail(preset)
+    res.setHeader('Content-Type', mimeType)
+    res.setHeader('Cache-Control', 'no-store')
+    res.send(Buffer.from(buffer))
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.post('/api/stream/:protocol', async (req, res) => {
+  try {
+    const protocol = req.params.protocol as StreamProtocol
+    if (!['rtmp', 'srt', 'ts'].includes(protocol)) {
+      return res.status(400).json({ error: 'Unsupported protocol' })
+    }
+
+    const command = req.body?.command as StreamCommand | undefined
+    if (!command || !['start', 'stop'].includes(command)) {
+      return res.status(400).json({ error: 'command must be "start" or "stop"' })
+    }
+
+    const response = await service.stream(protocol, command)
+    res.send(response)
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
 })
 
 const port = Number(process.env.PORT || 3000)
