@@ -73,14 +73,15 @@ const lastUpdatedText = computed(() => {
 
 <style scoped>
 .status-panel {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 1rem;
   padding: 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-elevated);
+  color: var(--text-primary);
 }
 
 header {
@@ -97,7 +98,7 @@ h2 {
 
 .retry {
   appearance: none;
-  background: #111827;
+  background: var(--accent);
   color: #fff;
   border: none;
   border-radius: 9999px;
@@ -109,7 +110,7 @@ h2 {
 }
 
 .retry:hover:not(:disabled) {
-  background: #0f172a;
+  background: var(--accent-strong);
   transform: translateY(-1px);
 }
 
@@ -133,25 +134,25 @@ dt {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #6b7280;
+  color: var(--text-muted);
 }
 
 dd {
   margin: 0;
   font-size: 0.95rem;
-  color: #111827;
+  color: var(--text-primary);
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
 }
 
 .hint {
-  color: #6b7280;
+  color: var(--text-muted);
   font-size: 0.95rem;
 }
 
 .error {
-  color: #dc2626;
+  color: #f87171;
   font-weight: 500;
 }
 </style>
