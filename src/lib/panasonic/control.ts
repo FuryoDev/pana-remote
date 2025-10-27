@@ -9,6 +9,77 @@ export interface CameraStatus {
   streaming: string
 }
 
+export interface CameraInfo {
+  modelName: string | null
+  cameraTitle: string | null
+  macAddress: string | null
+  lanMacAddress: string | null
+  serialNumber: string | null
+  operationTime: number | null
+  activationCounter: number | null
+}
+
+interface SystemInfoPayload {
+  macadr?: string
+  lan1_macadr?: string
+  lan_macadr?: string
+  serial?: string
+  opetime?: number | string
+  act_counter?: number | string
+}
+
+function parseKeyValuePayload(payload: string): Record<string, string> {
+  return payload
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && line.includes('='))
+    .reduce<Record<string, string>>((acc, line) => {
+      const [rawKey, ...rest] = line.split('=')
+      const key = rawKey?.trim()
+      if (!key) {
+        return acc
+      }
+
+      const value = rest.join('=').trim()
+      acc[key] = value
+      return acc
+    }, {})
+}
+
+function parseSystemInfoPayload(payload: string): SystemInfoPayload {
+  if (!payload) {
+    return {}
+  }
+
+  const sanitized = payload.replace(/\r?\n/g, '')
+  try {
+    return JSON.parse(sanitized) as SystemInfoPayload
+  } catch {
+    const kv = parseKeyValuePayload(payload)
+    return {
+      macadr: kv.macadr,
+      lan1_macadr: kv.lan1_macadr,
+      lan_macadr: kv.lan_macadr,
+      serial: kv.serial,
+      opetime: kv.opetime,
+      act_counter: kv.act_counter,
+    }
+  }
+}
+
+function coerceNumber(value: string | number | undefined | null): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  return null
+}
+
 export class PanasonicCameraService {
   constructor(private readonly client: PanasonicCameraClient) {}
 
@@ -52,5 +123,47 @@ export class PanasonicCameraService {
     const uid = await this.client.getUid()
     const streaming = await this.client.getStreamStat(uid)
     return { uid, streaming }
+  }
+
+  async info(): Promise<CameraInfo> {
+    try {
+      const [modelPayload, basicPayload, systemPayload] = await Promise.all([
+        this.client.modelSerial(),
+        this.client.basicInfo(),
+        this.client.systemInfo(),
+      ])
+
+      const modelName = modelPayload?.split(':')[0]?.trim() ?? null
+
+      const basic = parseKeyValuePayload(basicPayload ?? '')
+      const system = parseSystemInfoPayload(systemPayload ?? '')
+
+      const macAddress = system.macadr?.trim() ?? null
+      const lanMacAddress = system.lan1_macadr?.trim() ?? system.lan_macadr?.trim() ?? null
+      const serialNumber = system.serial?.trim() ?? null
+      const operationTime = coerceNumber(system.opetime)
+      const activationCounter = coerceNumber(system.act_counter)
+      const cameraTitle = basic.cam_title?.trim() ?? null
+
+      if (!modelName && !cameraTitle && !macAddress && !serialNumber) {
+        throw new Error('Aucune donnée valide retournée par la caméra')
+      }
+
+      return {
+        modelName: modelName || null,
+        cameraTitle,
+        macAddress,
+        lanMacAddress,
+        serialNumber,
+        operationTime,
+        activationCounter,
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Impossible de récupérer les informations de la caméra'
+      throw new Error(message)
+    }
   }
 }

@@ -89,6 +89,18 @@ export class PanasonicCameraClient {
     return this.get('/cgi-bin/aw_cam', { cmd, res })
   }
 
+  systemInfo() {
+    return this.get('/cgi-bin/system.cgi', {})
+  }
+
+  modelSerial() {
+    return this.get('/cgi-bin/model_serial', {})
+  }
+
+  basicInfo() {
+    return this.get('/cgi-bin/get_basic', {})
+  }
+
   rtmpCtrl(cmd: 'start' | 'stop') {
     return this.get('/cgi-bin/rtmp_ctrl', { cmd })
   }

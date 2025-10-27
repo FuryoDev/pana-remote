@@ -69,6 +69,20 @@ app.get('/api/camera/status', async (_req, res) => {
   }
 })
 
+app.get('/api/camera/info', async (_req, res) => {
+  try {
+    const info = await service.info()
+    res.json({ ...info, receivedAt: new Date().toISOString() })
+  } catch (error: any) {
+    log.error(error)
+    const message =
+      error instanceof Error
+        ? `Impossible de récupérer les informations de la caméra : ${error.message}`
+        : "Impossible de récupérer les informations de la caméra"
+    res.status(502).json({ error: message })
+  }
+})
+
 app.get('/api/preset/:preset/thumbnail', async (req, res) => {
   try {
     const preset = Number.parseInt(req.params.preset ?? '', 10)
