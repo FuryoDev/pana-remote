@@ -65,22 +65,16 @@ function ensurePresetState(preset: number) {
 }
 
 function loadLayoutsFromStorage() {
-  if (typeof window === 'undefined') {
-    return
-  }
+  if (typeof window === 'undefined') return
 
   try {
     const raw = window.localStorage.getItem(LAYOUT_STORAGE_KEY)
-    if (!raw) {
-      return
-    }
+    if (!raw) return
 
     const parsed = JSON.parse(raw) as Record<string, Array<{ type: string | null }>>
     for (const preset of presets) {
       const storedSlots = parsed?.[preset]
-      if (!Array.isArray(storedSlots)) {
-        continue
-      }
+      if (!Array.isArray(storedSlots)) continue
 
       layouts[preset] = storedSlots.map((slot, index) => ({
         id: `${preset}-${index}`,
@@ -93,9 +87,7 @@ function loadLayoutsFromStorage() {
 }
 
 function persistLayouts() {
-  if (typeof window === 'undefined') {
-    return
-  }
+  if (typeof window === 'undefined') return
 
   const payload: Record<number, Array<{ type: string | null }>> = {}
   for (const preset of presets) {
@@ -137,9 +129,7 @@ async function loadThumbnail(preset: number) {
 }
 
 async function refreshAll() {
-  if (isRefreshing.value) {
-    return
-  }
+  if (isRefreshing.value) return
 
   isRefreshing.value = true
   await Promise.all(presets.map((preset) => loadThumbnail(preset)))
@@ -148,9 +138,7 @@ async function refreshAll() {
 
 async function recallPreset(preset: number) {
   const tile = tiles[preset]!
-  if (tile.recalling) {
-    return
-  }
+  if (tile.recalling) return
 
   tile.recalling = true
   tile.feedback = null
@@ -180,9 +168,7 @@ function resetFeedbackTimers() {
 
   for (const preset of presets) {
     const tile = tiles[preset]!
-    if (!tile?.feedback) {
-      continue
-    }
+    if (!tile?.feedback) continue
 
     const handle = setTimeout(() => {
       if (tiles[preset]) {
@@ -199,9 +185,7 @@ function selectPreset(preset: number) {
 }
 
 function handlePaletteDragStart(event: DragEvent) {
-  if (!isEditing.value) {
-    return
-  }
+  if (!isEditing.value) return
 
   event.dataTransfer?.setData('application/preset-element', 'button')
   event.dataTransfer?.setData('text/plain', 'Bouton')
@@ -211,9 +195,7 @@ function handlePaletteDragStart(event: DragEvent) {
 }
 
 function handleSlotDragOver(event: DragEvent) {
-  if (!isEditing.value) {
-    return
-  }
+  if (!isEditing.value) return
 
   event.preventDefault()
   if (event.dataTransfer) {
@@ -222,25 +204,17 @@ function handleSlotDragOver(event: DragEvent) {
 }
 
 function handleSlotDrop(preset: number, slotIndex: number, event: DragEvent) {
-  if (!isEditing.value) {
-    return
-  }
+  if (!isEditing.value) return
 
   event.preventDefault()
   const elementType = event.dataTransfer?.getData('application/preset-element')
-  if (elementType !== 'button') {
-    return
-  }
+  if (elementType !== 'button') return
 
   const slots = layouts[preset]
-  if (!slots) {
-    return
-  }
+  if (!slots) return
 
   const currentSlot = slots[slotIndex]
-  if (!currentSlot) {
-    return
-  }
+  if (!currentSlot) return
 
   slots[slotIndex] = {
     ...currentSlot,
@@ -249,19 +223,13 @@ function handleSlotDrop(preset: number, slotIndex: number, event: DragEvent) {
 }
 
 function clearSlot(preset: number, slotIndex: number) {
-  if (!isEditing.value) {
-    return
-  }
+  if (!isEditing.value) return
 
   const slots = layouts[preset]
-  if (!slots) {
-    return
-  }
+  if (!slots) return
 
   const currentSlot = slots[slotIndex]
-  if (!currentSlot) {
-    return
-  }
+  if (!currentSlot) return
 
   slots[slotIndex] = {
     ...currentSlot,
@@ -312,6 +280,13 @@ watch(isEditing, (value) => {
   }
 })
 
+// Fermer automatiquement le mode édition lorsqu'on quitte l'onglet "Gestion"
+watch(activeTab, (tab) => {
+  if (tab !== 'management') {
+    isEditing.value = false
+  }
+})
+
 onUnmounted(() => {
   resetFeedbackTimers()
   for (const preset of presets) {
@@ -336,10 +311,7 @@ const selectedEntry = computed(() =>
 )
 
 const assignedPresetTile = computed(() => {
-  if (typeof props.assignedPreset !== 'number') {
-    return null
-  }
-
+  if (typeof props.assignedPreset !== 'number') return null
   return tiles[props.assignedPreset] ?? null
 })
 
@@ -375,6 +347,7 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
       </button>
     </nav>
 
+    <!-- Onglet Contrôles -->
     <div v-if="activeTab === 'controls'" class="preset-manager__controls">
       <header>
         <h3>Contrôles du preset</h3>
@@ -396,9 +369,12 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
         <p v-if="assignedPresetTile?.feedback" class="feedback">{{ assignedPresetTile?.feedback }}</p>
         <p v-if="assignedPresetTile?.error" class="error">{{ assignedPresetTile?.error }}</p>
       </div>
-      <p v-else class="controls-empty">Aucun preset n’est encore assigné à cette caméra. Rendez-vous dans les onglets Gestion ou Affectations.</p>
+      <p v-else class="controls-empty">
+        Aucun preset n’est encore assigné à cette caméra. Rendez-vous dans les onglets Gestion ou Affectations.
+      </p>
     </div>
 
+    <!-- Onglet Gestion -->
     <div v-else-if="activeTab === 'management'" class="preset-manager__content">
       <div class="preset-manager__toolbar">
         <span>Disposition des éléments</span>
@@ -442,7 +418,9 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
           <header class="preset-editor__header">
             <div>
               <h3>Preset {{ selectedEntry.preset }}</h3>
-              <p>{{ isEditing ? 'Glissez-déposez des éléments pour concevoir votre preset.' : 'Activez le mode édition pour modifier la disposition.' }}</p>
+              <p>
+                {{ isEditing ? 'Glissez-déposez des éléments pour concevoir votre preset.' : 'Activez le mode édition pour modifier la disposition.' }}
+              </p>
             </div>
             <button type="button" @click="recallPreset(selectedEntry.preset)" :disabled="selectedEntry.state.recalling">
               {{ selectedEntry.state.recalling ? 'Envoi…' : 'Rappeler' }}
@@ -493,6 +471,7 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
       </div>
     </div>
 
+    <!-- Onglet Affectations -->
     <div v-else class="preset-manager__assignment">
       <header>
         <h3>Affecter un preset</h3>
@@ -527,7 +506,6 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
       </div>
       <p v-else class="assignment-summary__empty">Aucune caméra sélectionnée pour l’instant.</p>
     </div>
-
   </section>
 </template>
 
@@ -1014,47 +992,5 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
 .controls-empty {
   margin: 0;
   color: var(--text-muted);
-}
-
-.preset-manager__controls {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.preset-manager__controls header h3 {
-  margin: 0;
-  font-size: 1.05rem;
-}
-
-.preset-manager__controls header p {
-  margin: 0.45rem 0 0;
-  color: var(--text-muted);
-}
-
-.controls-card {
-  border-radius: 0.9rem;
-  border: 1px solid var(--border);
-  background: var(--surface-raised);
-  padding: 1.25rem;
-  display: grid;
-  gap: 0.75rem;
-}
-
-.controls-card button {
-  appearance: none;
-  border: none;
-  border-radius: 999px;
-  padding: 0.6rem 1.6rem;
-  font-weight: 600;
-  background: var(--accent);
-  color: #fff;
-  justify-self: flex-start;
-  cursor: pointer;
-}
-
-.controls-card button:disabled {
-  opacity: 0.6;
-  cursor: progress;
 }
 </style>
