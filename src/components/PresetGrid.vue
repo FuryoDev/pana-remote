@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
+type PresetTab = 'controls' | 'management' | 'assignment'
+
+type CameraReference = {
+  id: string
+  name: string
+  location?: string
+  status?: 'online' | 'offline'
+}
+
 interface PresetTileState {
   loading: boolean
   objectUrl: string | null
@@ -14,14 +23,21 @@ interface PresetSlot {
   type: 'button' | null
 }
 
-type PresetTab = 'presets' | 'tab2' | 'tab3' | 'tab4'
+const props = defineProps<{
+  selectedCamera: CameraReference | null
+  assignedPreset: number | null
+}>()
+
+const emit = defineEmits<{ (e: 'assign', preset: number): void }>()
 
 const presets = [1, 2, 3, 4, 5, 6]
 const tiles = reactive<Record<number, PresetTileState>>({})
 const layouts = reactive<Record<number, PresetSlot[]>>({})
 const isRefreshing = ref(false)
-const activeTab = ref<PresetTab>('presets')
-const selectedPreset = ref(presets[0])
+const activeTab = ref<PresetTab>('controls')
+const selectedPreset = ref<number>(presets[0] ?? 1)
+const isEditing = ref(false)
+const assignmentMessage = ref<string | null>(null)
 const cleanupTimers: Array<() => void> = []
 const LAYOUT_STORAGE_KEY = 'pana-remote:presets-layouts'
 
@@ -183,6 +199,10 @@ function selectPreset(preset: number) {
 }
 
 function handlePaletteDragStart(event: DragEvent) {
+  if (!isEditing.value) {
+    return
+  }
+
   event.dataTransfer?.setData('application/preset-element', 'button')
   event.dataTransfer?.setData('text/plain', 'Bouton')
   if (event.dataTransfer) {
@@ -191,6 +211,10 @@ function handlePaletteDragStart(event: DragEvent) {
 }
 
 function handleSlotDragOver(event: DragEvent) {
+  if (!isEditing.value) {
+    return
+  }
+
   event.preventDefault()
   if (event.dataTransfer) {
     event.dataTransfer.dropEffect = 'copy'
@@ -198,6 +222,10 @@ function handleSlotDragOver(event: DragEvent) {
 }
 
 function handleSlotDrop(preset: number, slotIndex: number, event: DragEvent) {
+  if (!isEditing.value) {
+    return
+  }
+
   event.preventDefault()
   const elementType = event.dataTransfer?.getData('application/preset-element')
   if (elementType !== 'button') {
@@ -221,6 +249,10 @@ function handleSlotDrop(preset: number, slotIndex: number, event: DragEvent) {
 }
 
 function clearSlot(preset: number, slotIndex: number) {
+  if (!isEditing.value) {
+    return
+  }
+
   const slots = layouts[preset]
   if (!slots) {
     return
@@ -237,6 +269,16 @@ function clearSlot(preset: number, slotIndex: number) {
   }
 }
 
+function assignCurrentPreset() {
+  if (!props.selectedCamera) {
+    assignmentMessage.value = 'Sélectionnez une caméra pour l’affectation.'
+    return
+  }
+
+  emit('assign', selectedPreset.value)
+  assignmentMessage.value = `Preset ${selectedPreset.value} assigné à ${props.selectedCamera.name}`
+}
+
 onMounted(() => {
   loadLayoutsFromStorage()
   void refreshAll()
@@ -246,7 +288,7 @@ watch(
   () => presets.map((preset) => tiles[preset]?.feedback ?? null),
   () => {
     resetFeedbackTimers()
-  }
+  },
 )
 
 watch(
@@ -254,8 +296,21 @@ watch(
   () => {
     persistLayouts()
   },
-  { deep: true }
+  { deep: true },
 )
+
+watch(
+  () => props.selectedCamera?.id,
+  () => {
+    assignmentMessage.value = null
+  },
+)
+
+watch(isEditing, (value) => {
+  if (!value) {
+    assignmentMessage.value = null
+  }
+})
 
 onUnmounted(() => {
   resetFeedbackTimers()
@@ -273,25 +328,36 @@ const presetEntries = computed(() =>
     preset,
     state: tiles[preset]!,
     slots: layouts[preset]!,
-  }))
+  })),
 )
 
 const selectedEntry = computed(() =>
-  presetEntries.value.find((entry) => entry.preset === selectedPreset.value)
+  presetEntries.value.find((entry) => entry.preset === selectedPreset.value),
 )
 
+const assignedPresetTile = computed(() => {
+  if (typeof props.assignedPreset !== 'number') {
+    return null
+  }
+
+  return tiles[props.assignedPreset] ?? null
+})
+
 const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
-  { id: 'presets', label: 'Presets' },
-  { id: 'tab2', label: 'Onglet 2' },
-  { id: 'tab3', label: 'Onglet 3' },
-  { id: 'tab4', label: 'Onglet 4' },
+  { id: 'controls', label: 'Contrôles' },
+  { id: 'management', label: 'Gestion' },
+  { id: 'assignment', label: 'Affectations' },
 ]
 </script>
 
 <template>
   <section class="preset-manager">
     <header class="preset-manager__header">
-      <h2>Presets</h2>
+      <div>
+        <h2>Presets</h2>
+        <p v-if="selectedCamera">Caméra active · {{ selectedCamera.name }}</p>
+        <p v-else>Sélectionnez une caméra pour configurer ses presets.</p>
+      </div>
       <button type="button" @click="refreshAll" :disabled="isRefreshing">
         {{ isRefreshing ? 'Actualisation…' : 'Rafraîchir les miniatures' }}
       </button>
@@ -309,19 +375,80 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
       </button>
     </nav>
 
-    <div v-if="activeTab === 'presets'" class="preset-manager__content">
-      <div class="preset-manager__selected" v-if="selectedEntry">
-        <div class="preset-manager__selected-header">
-          <div>
-            <h3>Preset sélectionné · {{ selectedEntry.preset }}</h3>
-            <p class="preset-manager__hint">Glissez-déposez des éléments pour construire votre preset.</p>
-          </div>
-          <button type="button" @click="recallPreset(selectedEntry.preset)" :disabled="selectedEntry.state.recalling">
-            {{ selectedEntry.state.recalling ? 'Envoi…' : 'Rappeler' }}
-          </button>
+    <div v-if="activeTab === 'controls'" class="preset-manager__controls">
+      <header>
+        <h3>Contrôles du preset</h3>
+        <p>Gérez le preset affecté à la caméra prévisualisée.</p>
+      </header>
+
+      <div v-if="assignedPreset" class="controls-card">
+        <p>
+          Le preset <strong>{{ assignedPreset }}</strong> est prêt pour la caméra
+          <strong>{{ selectedCamera?.name ?? 'sélectionnée' }}</strong>.
+        </p>
+        <button
+          type="button"
+          @click="assignedPreset && recallPreset(assignedPreset)"
+          :disabled="!assignedPresetTile || assignedPresetTile.recalling"
+        >
+          {{ assignedPresetTile?.recalling ? 'Envoi…' : 'Rappeler le preset assigné' }}
+        </button>
+        <p v-if="assignedPresetTile?.feedback" class="feedback">{{ assignedPresetTile?.feedback }}</p>
+        <p v-if="assignedPresetTile?.error" class="error">{{ assignedPresetTile?.error }}</p>
+      </div>
+      <p v-else class="controls-empty">Aucun preset n’est encore assigné à cette caméra. Rendez-vous dans les onglets Gestion ou Affectations.</p>
+    </div>
+
+    <div v-else-if="activeTab === 'management'" class="preset-manager__content">
+      <div class="preset-manager__toolbar">
+        <span>Disposition des éléments</span>
+        <button type="button" class="secondary" @click="isEditing = !isEditing">
+          {{ isEditing ? 'Terminer l’édition' : 'Activer l’édition' }}
+        </button>
+      </div>
+
+      <div class="preset-manager__layout">
+        <div class="preset-manager__list">
+          <article
+            v-for="entry in presetEntries"
+            :key="entry.preset"
+            class="preset-card"
+            :class="{ 'is-selected': entry.preset === selectedPreset }"
+          >
+            <button type="button" class="preset-card__select" @click="selectPreset(entry.preset)">
+              <span>Preset {{ entry.preset }}</span>
+            </button>
+
+            <div class="thumbnail" :class="{ loading: entry.state.loading }">
+              <template v-if="entry.state.loading">
+                <span>Chargement…</span>
+              </template>
+              <img v-else-if="entry.state.objectUrl" :src="entry.state.objectUrl" :alt="`Preset ${entry.preset}`" />
+              <p v-else class="placeholder">Miniature indisponible</p>
+            </div>
+
+            <footer class="preset-card__footer">
+              <button type="button" @click="recallPreset(entry.preset)" :disabled="entry.state.recalling">
+                {{ entry.state.recalling ? 'Envoi…' : 'Rappeler' }}
+              </button>
+              <button type="button" class="preset-card__configure" @click="selectPreset(entry.preset)">
+                Configurer
+              </button>
+            </footer>
+          </article>
         </div>
 
-        <div class="preset-editor">
+        <div v-if="selectedEntry" class="preset-editor" :class="{ 'is-readonly': !isEditing }">
+          <header class="preset-editor__header">
+            <div>
+              <h3>Preset {{ selectedEntry.preset }}</h3>
+              <p>{{ isEditing ? 'Glissez-déposez des éléments pour concevoir votre preset.' : 'Activez le mode édition pour modifier la disposition.' }}</p>
+            </div>
+            <button type="button" @click="recallPreset(selectedEntry.preset)" :disabled="selectedEntry.state.recalling">
+              {{ selectedEntry.state.recalling ? 'Envoi…' : 'Rappeler' }}
+            </button>
+          </header>
+
           <div class="preset-editor__grid">
             <div
               v-for="(slot, index) in selectedEntry.slots"
@@ -347,237 +474,398 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
 
           <aside class="preset-editor__palette">
             <h4>Éléments disponibles</h4>
-            <p>Commencez par faire glisser un bouton vide vers un emplacement libre.</p>
+            <p>Faites glisser un bouton vide vers l’emplacement souhaité.</p>
             <button
               type="button"
               class="preset-editor__palette-item"
               draggable="true"
               @dragstart="handlePaletteDragStart"
+              :disabled="!isEditing"
             >
               Bouton vide
             </button>
             <p class="preset-editor__autosave">Les modifications sont enregistrées automatiquement.</p>
           </aside>
+
+          <p v-if="selectedEntry.state.feedback" class="feedback">{{ selectedEntry.state.feedback }}</p>
+          <p v-if="selectedEntry.state.error" class="error">{{ selectedEntry.state.error }}</p>
         </div>
-
-        <p v-if="selectedEntry.state.feedback" class="feedback">{{ selectedEntry.state.feedback }}</p>
-        <p v-if="selectedEntry.state.error" class="error">{{ selectedEntry.state.error }}</p>
       </div>
+    </div>
 
-      <div class="preset-manager__list">
-        <article
+    <div v-else class="preset-manager__assignment">
+      <header>
+        <h3>Affecter un preset</h3>
+        <p>
+          Sélectionnez un preset dans la liste puis assignez-le à la caméra prévisualisée. Cette opération n’est
+          disponible qu’après avoir choisi une caméra.
+        </p>
+      </header>
+
+      <ul class="preset-manager__assignment-list">
+        <li
           v-for="entry in presetEntries"
           :key="entry.preset"
-          class="preset-card"
           :class="{ 'is-selected': entry.preset === selectedPreset }"
         >
-          <button type="button" class="preset-card__select" @click="selectPreset(entry.preset)">
-            <span>Preset {{ entry.preset }}</span>
+          <button type="button" @click="selectPreset(entry.preset)">
+            Preset {{ entry.preset }}
           </button>
+        </li>
+      </ul>
 
-          <div class="thumbnail" :class="{ loading: entry.state.loading }">
-            <template v-if="entry.state.loading">
-              <span>Chargement…</span>
-            </template>
-            <img v-else-if="entry.state.objectUrl" :src="entry.state.objectUrl" :alt="`Preset ${entry.preset}`" />
-            <p v-else class="placeholder">Miniature indisponible</p>
-          </div>
+      <button type="button" class="primary" @click="assignCurrentPreset">Assigner le preset sélectionné</button>
+      <p v-if="assignmentMessage" class="assignment-message">{{ assignmentMessage }}</p>
 
-          <footer class="preset-card__footer">
-            <button type="button" @click="recallPreset(entry.preset)" :disabled="entry.state.recalling">
-              {{ entry.state.recalling ? 'Envoi…' : 'Rappeler' }}
-            </button>
-            <button type="button" @click="selectPreset(entry.preset)" class="preset-card__configure">
-              Configurer
-            </button>
-          </footer>
-        </article>
+      <div class="assignment-summary" v-if="selectedCamera">
+        <h4>Caméra ciblée</h4>
+        <p>{{ selectedCamera.name }}</p>
+        <p class="assignment-summary__preset">
+          Preset actuel :
+          <strong>{{ assignedPreset ? `Preset ${assignedPreset}` : 'Aucun preset assigné' }}</strong>
+        </p>
       </div>
+      <p v-else class="assignment-summary__empty">Aucune caméra sélectionnée pour l’instant.</p>
     </div>
 
-    <div v-else class="preset-manager__placeholder">
-      <p>Contenu à venir pour cet onglet.</p>
-    </div>
   </section>
 </template>
 
 <style scoped>
 .preset-manager {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 1rem;
-  padding: clamp(1.25rem, 3vw, 1.75rem);
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
 }
 
 .preset-manager__header {
   display: flex;
-  align-items: center;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 1rem;
 }
 
-h2 {
+.preset-manager__header h2 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 1.15rem;
 }
 
-button {
+.preset-manager__header p {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+}
+
+.preset-manager__header button {
   appearance: none;
   border: none;
-  border-radius: 9999px;
-  background: #111827;
-  color: #fff;
+  border-radius: 999px;
   font-weight: 600;
   font-size: 0.9rem;
-  padding: 0.45rem 1.1rem;
+  padding: 0.55rem 1.4rem;
   cursor: pointer;
-  transition: transform 0.2s ease, opacity 0.2s ease, background 0.2s ease;
+  background: var(--accent);
+  color: #fff;
+  transition: background 0.2s ease, transform 0.2s ease;
 }
 
-button:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
-
-button:disabled {
+.preset-manager__header button:disabled {
   opacity: 0.6;
   cursor: progress;
 }
 
+.preset-manager__header button:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
 .preset-manager__tabs {
-  display: flex;
-  flex-wrap: wrap;
+  display: inline-flex;
   gap: 0.5rem;
 }
 
 .preset-manager__tabs button {
-  border-radius: 9999px;
-  padding: 0.4rem 1rem;
-  background: #e5e7eb;
-  color: #111827;
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
   font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.4rem 1rem;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
 .preset-manager__tabs button.is-active {
-  background: #2563eb;
+  background: var(--accent);
+  border-color: var(--accent);
   color: #fff;
+}
+
+.preset-manager__tabs button:hover {
+  background: var(--surface-highlight);
+  border-color: var(--accent);
+  color: var(--text-primary);
 }
 
 .preset-manager__content {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.25rem;
 }
 
-.preset-manager__selected {
-  border: 1px solid #e5e7eb;
-  border-radius: 1rem;
-  padding: clamp(1rem, 3vw, 1.5rem);
-  background: #f8fafc;
+.preset-manager__toolbar {
   display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.preset-manager__selected-header {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.preset-manager__selected-header h3 {
-  margin: 0;
-  font-size: 1.1rem;
-}
-
-.preset-manager__hint {
-  margin: 0.25rem 0 0;
-  color: #6b7280;
+  justify-content: space-between;
+  align-items: center;
   font-size: 0.9rem;
+  font-weight: 600;
 }
 
-@media (min-width: 720px) {
-  .preset-manager__selected-header {
-    flex-direction: row;
-    justify-content: space-between;
-    align-items: center;
-  }
+.preset-manager__toolbar .secondary {
+  appearance: none;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.4rem 1.2rem;
+  cursor: pointer;
+  background: rgba(37, 99, 235, 0.18);
+  color: #dbeafe;
+  transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
 
-  .preset-manager__selected-header h3 {
-    font-size: 1.2rem;
+.preset-manager__toolbar .secondary:hover {
+  background: rgba(37, 99, 235, 0.24);
+  border-color: var(--accent-strong);
+  transform: translateY(-1px);
+}
+
+.preset-manager__layout {
+  display: grid;
+  gap: 1.25rem;
+}
+
+@media (min-width: 1024px) {
+  .preset-manager__layout {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   }
+}
+
+.preset-manager__list {
+  display: grid;
+  gap: 1rem;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.preset-card {
+  background: var(--surface-raised);
+  border-radius: 1rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  border: 1px solid transparent;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.preset-card.is-selected {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.preset-card__select {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-weight: 600;
+  font-size: 1rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.thumbnail {
+  border-radius: 0.75rem;
+  background: var(--surface-muted);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  min-height: 120px;
+}
+
+.thumbnail.loading {
+  background: var(--surface-highlight);
+}
+
+.thumbnail img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.thumbnail .placeholder {
+  margin: 0;
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.preset-card__footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.preset-card__footer button {
+  flex: 1;
+  appearance: none;
+  border: none;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.45rem 0.75rem;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.preset-card__footer button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.preset-card__footer button:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.preset-card__configure {
+  background: var(--surface-highlight);
+  color: var(--text-primary);
 }
 
 .preset-editor {
-  display: grid;
-  gap: 1.5rem;
+  background: var(--surface-muted);
+  border-radius: 1rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  position: relative;
 }
 
-@media (min-width: 960px) {
-  .preset-editor {
-    grid-template-columns: minmax(0, 1fr) 260px;
-  }
+.preset-editor.is-readonly::after {
+  content: 'Mode lecture seule activé. Cliquez sur "Activer l\u2019édition" pour modifier.';
+  position: absolute;
+  inset: 1.25rem;
+  background: rgba(2, 6, 23, 0.85);
+  border-radius: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-weight: 600;
+  color: #dbeafe;
+  pointer-events: none;
+}
+
+.preset-editor__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.preset-editor__header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.preset-editor__header p {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+}
+
+.preset-editor__header button {
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.4rem 1.2rem;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+  transition: background 0.2s ease, transform 0.2s ease;
 }
 
 .preset-editor__grid {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 
 .preset-editor__slot {
-  min-height: 120px;
-  border: 2px dashed #cbd5f5;
-  border-radius: 1rem;
-  background: #eef2ff;
-  color: #4338ca;
+  border: 2px dashed rgba(37, 99, 235, 0.24);
+  border-radius: 0.85rem;
+  min-height: 100px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.75rem;
-  padding: 1rem;
+  gap: 0.6rem;
+  padding: 0.75rem;
   text-align: center;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  background: rgba(37, 99, 235, 0.08);
+  transition: background 0.2s ease, border-color 0.2s ease;
 }
 
 .preset-editor__slot.has-element {
-  border-style: solid;
-  border-color: #2563eb;
-  background: #dbeafe;
-}
-
-.preset-editor__placeholder {
-  font-size: 0.9rem;
-  color: #4c1d95;
+  background: rgba(37, 99, 235, 0.16);
+  border-color: rgba(37, 99, 235, 0.4);
 }
 
 .preset-editor__button {
-  width: 100%;
-  max-width: 180px;
-  background: #2563eb;
+  appearance: none;
+  border: none;
+  border-radius: 0.75rem;
+  padding: 0.45rem 0.85rem;
+  font-weight: 600;
+  cursor: grab;
+  background: var(--accent);
+  color: #fff;
+}
+
+.preset-editor__button:active {
+  cursor: grabbing;
 }
 
 .preset-editor__clear {
-  background: transparent;
-  color: #1f2937;
-  border: 1px solid #d1d5db;
-  border-radius: 9999px;
+  appearance: none;
+  border: none;
+  border-radius: 999px;
   padding: 0.35rem 0.9rem;
   font-size: 0.8rem;
+  cursor: pointer;
+  background: var(--surface-highlight);
+  color: var(--text-primary);
+}
+
+.preset-editor__placeholder {
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .preset-editor__palette {
-  border: 1px solid #e5e7eb;
-  border-radius: 1rem;
-  padding: 1.25rem;
-  background: #ffffff;
-  display: flex;
-  flex-direction: column;
+  border-radius: 0.85rem;
+  background: var(--surface-raised);
+  padding: 1rem;
+  display: grid;
   gap: 0.75rem;
+  border: 1px solid var(--border);
 }
 
 .preset-editor__palette h4 {
@@ -587,119 +875,186 @@ button:disabled {
 
 .preset-editor__palette p {
   margin: 0;
+  color: var(--text-muted);
   font-size: 0.85rem;
-  color: #4b5563;
 }
 
 .preset-editor__palette-item {
-  align-self: flex-start;
-  background: #2563eb;
+  appearance: none;
+  border: none;
+  border-radius: 0.75rem;
+  padding: 0.45rem 0.85rem;
+  font-weight: 600;
+  background: var(--accent);
+  color: #fff;
+  cursor: grab;
+}
+
+.preset-editor__palette-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .preset-editor__autosave {
-  font-style: italic;
-  color: #6b7280;
-}
-
-.preset-manager__list {
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-}
-
-.preset-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 1rem;
-  background: #f9fafb;
-  padding: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.preset-card.is-selected {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.18);
-  border-color: #2563eb;
-}
-
-.preset-card__select {
-  width: 100%;
-  background: transparent;
-  color: #1f2937;
-  border: 1px solid #d1d5db;
-}
-
-.preset-card__select span {
-  font-weight: 600;
-}
-
-.preset-card__footer {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.preset-card__footer button {
-  flex: 1;
-}
-
-.preset-card__configure {
-  background: #111827;
-}
-
-.thumbnail {
-  border-radius: 0.75rem;
-  overflow: hidden;
-  background: #1f2937;
-  color: #f9fafb;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100px;
-  position: relative;
-}
-
-.thumbnail.loading {
-  background: repeating-linear-gradient(
-    45deg,
-    rgba(79, 70, 229, 0.12),
-    rgba(79, 70, 229, 0.12) 10px,
-    rgba(79, 70, 229, 0.22) 10px,
-    rgba(79, 70, 229, 0.22) 20px
-  );
-}
-
-.thumbnail img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.placeholder {
-  margin: 0;
-  font-size: 0.85rem;
-  font-weight: 500;
-}
-
-.error {
-  margin: 0;
-  font-size: 0.85rem;
-  color: #b91c1c;
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 
 .feedback {
   margin: 0;
-  font-size: 0.85rem;
-  color: #0f766e;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #34d399;
 }
 
-.preset-manager__placeholder {
-  border: 1px dashed #cbd5e1;
-  border-radius: 1rem;
-  padding: 2.5rem 1.5rem;
-  text-align: center;
-  color: #64748b;
-  background: #f8fafc;
+.error {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #f87171;
+}
+
+.preset-manager__assignment {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.preset-manager__assignment header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.preset-manager__assignment header p {
+  margin: 0.5rem 0 0;
+  color: var(--text-muted);
+}
+
+.preset-manager__assignment-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.preset-manager__assignment-list li {
+  margin: 0;
+}
+
+.preset-manager__assignment-list li button {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.4rem 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.preset-manager__assignment-list li button:hover {
+  border-color: var(--accent);
+  background: var(--surface-highlight);
+}
+
+.preset-manager__assignment-list li.is-selected button {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.preset-manager__assignment .primary {
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  padding: 0.6rem 1.6rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+  align-self: flex-start;
+}
+
+.assignment-message {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #34d399;
+}
+
+.assignment-summary {
+  border-radius: 0.85rem;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  padding: 1rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.assignment-summary h4 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.assignment-summary__preset {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.assignment-summary__preset strong {
+  color: var(--accent);
+}
+
+.assignment-summary__empty,
+.controls-empty {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.preset-manager__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.preset-manager__controls header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.preset-manager__controls header p {
+  margin: 0.45rem 0 0;
+  color: var(--text-muted);
+}
+
+.controls-card {
+  border-radius: 0.9rem;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  padding: 1.25rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.controls-card button {
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  padding: 0.6rem 1.6rem;
+  font-weight: 600;
+  background: var(--accent);
+  color: #fff;
+  justify-self: flex-start;
+  cursor: pointer;
+}
+
+.controls-card button:disabled {
+  opacity: 0.6;
+  cursor: progress;
 }
 </style>
