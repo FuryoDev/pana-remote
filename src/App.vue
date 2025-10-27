@@ -1,243 +1,429 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
-import CameraStatusPanel from './components/CameraStatusPanel.vue'
-import CameraPreviewPanel from './components/CameraPreviewPanel.vue'
-import CameraTestButton from './components/CameraTestButton.vue'
-import PresetGrid from './components/PresetGrid.vue'
-import { useCameraStatus } from './composables/useCameraStatus'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import type { CameraInfoResponse } from './types/camera'
 
-type ActiveContext = 'camera-list' | 'camera-preview' | 'status'
+type PanTiltDirection = 'up' | 'down' | 'left' | 'right' | 'stop'
+type MovementDirection = Exclude<PanTiltDirection, 'stop'>
 
-interface CameraSummary {
-  id: string
-  name: string
-  location: string
-  status: 'online' | 'offline'
-}
+const cameraUrl = 'http://10.41.39.153/live/index.html'
 
-const { status, isLoading, error, lastUpdated, refresh } = useCameraStatus()
+const cameraInfo = ref<CameraInfoResponse | null>(null)
+const infoLoading = ref(true)
+const infoError = ref<string | null>(null)
 
-const cameras = ref<CameraSummary[]>([
-  { id: 'cam-01', name: 'Auditorium A', location: 'Salle principale', status: 'online' },
-  { id: 'cam-02', name: 'Auditorium B', location: 'Salle principale', status: 'online' },
-  { id: 'cam-03', name: 'Balcon A', location: 'Niveau 2', status: 'online' },
-  { id: 'cam-04', name: 'Balcon B', location: 'Niveau 2', status: 'offline' },
-  { id: 'cam-05', name: 'Régie', location: 'Niveau 1', status: 'online' },
-  { id: 'cam-06', name: 'Lobby', location: 'Rez-de-chaussée', status: 'online' },
-  { id: 'cam-07', name: 'Entrée Est', location: 'Extérieur', status: 'offline' },
-  { id: 'cam-08', name: 'Entrée Ouest', location: 'Extérieur', status: 'online' },
-  { id: 'cam-09', name: 'Foyer', location: 'Rez-de-chaussée', status: 'online' },
-  { id: 'cam-10', name: 'Studio', location: 'Sous-sol', status: 'online' },
-])
+const activeDirection = ref<PanTiltDirection | null>(null)
+const controlError = ref<string | null>(null)
+const isCommandPending = ref(false)
 
-const camerasPerPage = ref(5)
-const currentPage = ref(1)
-const activeContext = ref<ActiveContext>('camera-preview')
-const assignedPresets = reactive<Record<string, number | null>>({})
+const presets = [1, 2, 3, 4, 5, 6]
+const presetBusy = ref<number | null>(null)
+const presetMessage = ref<string | null>(null)
+const presetError = ref<string | null>(null)
 
-const totalPages = computed(() => {
-  const total = Math.ceil(cameras.value.length / camerasPerPage.value)
-  return total > 0 ? total : 1
-})
+let commandQueue: Promise<void> = Promise.resolve()
+let pointerActive = false
+const tapTimers = new Set<number>()
+let presetTimer: number | null = null
 
-const pageOptions = [5, 10]
-
-const paginatedCameras = computed(() => {
-  const start = (currentPage.value - 1) * camerasPerPage.value
-  return cameras.value.slice(start, start + camerasPerPage.value)
-})
-
-watch([camerasPerPage, cameras], () => {
-  if (currentPage.value > totalPages.value) {
-    currentPage.value = totalPages.value
+const cameraLabel = computed(() => cameraInfo.value?.cameraTitle?.trim() || 'Cam 1')
+const cameraModel = computed(() => cameraInfo.value?.modelName?.trim() || 'Panasonic PTZ')
+const cameraSummary = computed(() => {
+  if (!cameraInfo.value) return ''
+  const parts: string[] = []
+  if (cameraInfo.value.serialNumber) {
+    parts.push(`S/N ${cameraInfo.value.serialNumber}`)
   }
-})
-
-watch(camerasPerPage, () => {
-  currentPage.value = 1
-})
-
-const selectedCameraId = ref(cameras.value[0]?.id ?? null)
-
-const selectedCamera = computed(() =>
-  cameras.value.find((camera) => camera.id === selectedCameraId.value) ?? null,
-)
-
-const selectedCameraAssignedPreset = computed(() => {
-  const camera = selectedCamera.value
-  if (!camera) {
-    return null
+  if (cameraInfo.value.macAddress) {
+    parts.push(`MAC ${cameraInfo.value.macAddress}`)
   }
-
-  return assignedPresets[camera.id] ?? null
+  return parts.join(' · ')
 })
 
-function setContext(context: ActiveContext) {
-  activeContext.value = context
-}
+async function fetchCameraInfo() {
+  infoLoading.value = true
+  infoError.value = null
 
-function selectCamera(cameraId: string) {
-  selectedCameraId.value = cameraId
-}
+  try {
+    const response = await fetch('/api/camera/info', {
+      headers: { 'Cache-Control': 'no-store' },
+    })
+    const text = await response.text()
 
-function goToPreviousPage() {
-  if (currentPage.value > 1) {
-    currentPage.value -= 1
+    if (!response.ok) {
+      let message = `HTTP ${response.status}`
+      if (text) {
+        try {
+          const parsed = JSON.parse(text)
+          if (parsed && typeof parsed === 'object' && 'error' in parsed && parsed.error) {
+            message = String(parsed.error)
+          } else {
+            message = text
+          }
+        } catch {
+          message = text
+        }
+      }
+      throw new Error(message)
+    }
+
+    try {
+      cameraInfo.value = JSON.parse(text) as CameraInfoResponse
+    } catch {
+      throw new Error('Format de réponse inattendu pour les informations caméra')
+    }
+  } catch (error) {
+    cameraInfo.value = null
+    infoError.value =
+      error instanceof Error
+        ? error.message
+        : "Impossible de récupérer les informations de la caméra"
+  } finally {
+    infoLoading.value = false
   }
 }
 
-function goToNextPage() {
-  if (currentPage.value < totalPages.value) {
-    currentPage.value += 1
+function enqueuePanTilt(direction: PanTiltDirection, speed?: number) {
+  const payload: Record<string, unknown> = { direction }
+  if (typeof speed === 'number' && Number.isFinite(speed)) {
+    payload.speed = speed
   }
+
+  commandQueue = commandQueue
+    .catch(() => {
+      /* swallow previous errors to keep queue flowing */
+    })
+    .then(async () => {
+      isCommandPending.value = true
+      controlError.value = null
+
+      try {
+        const response = await fetch('/api/camera/pan-tilt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+
+        if (!response.ok) {
+          const text = await response.text().catch(() => '')
+          let message = `HTTP ${response.status}`
+
+          if (text) {
+            try {
+              const parsed = JSON.parse(text)
+              if (parsed && typeof parsed === 'object' && 'error' in parsed && parsed.error) {
+                message = String(parsed.error)
+              } else if (typeof parsed === 'string') {
+                message = parsed
+              } else {
+                message = text
+              }
+            } catch {
+              message = text
+            }
+          }
+
+          throw new Error(message)
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Impossible d'envoyer la commande PTZ"
+        controlError.value = message
+        throw error
+      } finally {
+        isCommandPending.value = false
+      }
+    })
+
+  return commandQueue
 }
 
-function handleAssignPreset(preset: number) {
-  if (!selectedCamera.value) {
+function handlePointerDown(direction: MovementDirection, event: PointerEvent) {
+  pointerActive = true
+  ;(event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId)
+  activeDirection.value = direction
+  enqueuePanTilt(direction).catch(() => {})
+}
+
+function handlePointerUp(event: PointerEvent) {
+  ;(event.currentTarget as HTMLElement | null)?.releasePointerCapture?.(event.pointerId)
+  activeDirection.value = null
+  enqueuePanTilt('stop').catch(() => {})
+  window.setTimeout(() => {
+    pointerActive = false
+  }, 0)
+}
+
+function handlePointerCancel() {
+  activeDirection.value = null
+  pointerActive = false
+  enqueuePanTilt('stop').catch(() => {})
+}
+
+function handlePointerLeave(event: PointerEvent) {
+  if ((event.buttons ?? 0) === 0) {
     return
   }
 
-  assignedPresets[selectedCamera.value.id] = preset
+  activeDirection.value = null
+  pointerActive = false
+  enqueuePanTilt('stop').catch(() => {})
 }
 
-const cameraListForFilters = computed(() =>
-  cameras.value.map((camera) => ({
-    id: camera.id,
-    label: `${camera.name} — ${camera.location}`,
-    status: camera.status,
-  })),
-)
+function handleKeyboardClick(direction: MovementDirection) {
+  if (pointerActive) {
+    return
+  }
+
+  activeDirection.value = direction
+
+  const command = enqueuePanTilt(direction).catch(() => {})
+  command.finally(() => {
+    const timer = window.setTimeout(() => {
+      activeDirection.value = null
+      enqueuePanTilt('stop').catch(() => {})
+      tapTimers.delete(timer)
+    }, 220)
+
+    tapTimers.add(timer)
+  })
+}
+
+function handleStopClick() {
+  activeDirection.value = null
+  pointerActive = false
+  enqueuePanTilt('stop').catch(() => {})
+}
+
+function clearPresetTimer() {
+  if (presetTimer) {
+    window.clearTimeout(presetTimer)
+    presetTimer = null
+  }
+}
+
+function schedulePresetFeedbackClear() {
+  clearPresetTimer()
+  presetTimer = window.setTimeout(() => {
+    presetMessage.value = null
+    presetError.value = null
+    presetTimer = null
+  }, 2600)
+}
+
+async function recallPreset(preset: number) {
+  if (presetBusy.value !== null) {
+    return
+  }
+
+  presetBusy.value = preset
+  presetMessage.value = null
+  presetError.value = null
+
+  try {
+    const response = await fetch('/api/preset/recall', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ n: preset }),
+    })
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      let message = `HTTP ${response.status}`
+
+      if (text) {
+        try {
+          const parsed = JSON.parse(text)
+          if (parsed && typeof parsed === 'object' && 'error' in parsed && parsed.error) {
+            message = String(parsed.error)
+          } else if (typeof parsed === 'string') {
+            message = parsed
+          } else {
+            message = text
+          }
+        } catch {
+          message = text
+        }
+      }
+
+      throw new Error(message)
+    }
+
+    presetMessage.value = `Preset ${preset} rappelé`
+  } catch (error) {
+    presetError.value =
+      error instanceof Error ? error.message : 'Impossible de rappeler le preset'
+  } finally {
+    presetBusy.value = null
+    schedulePresetFeedbackClear()
+  }
+}
+
+function refreshInfo() {
+  void fetchCameraInfo()
+}
+
+onMounted(() => {
+  fetchCameraInfo().catch((error) => {
+    console.error('Camera info fetch failed', error)
+  })
+})
+
+onUnmounted(() => {
+  tapTimers.forEach((timer) => {
+    clearTimeout(timer)
+  })
+  tapTimers.clear()
+  clearPresetTimer()
+})
 </script>
 
 <template>
-  <main class="app">
-    <header class="app__header">
+  <main class="camera-app">
+    <header class="camera-app__header">
       <div>
-        <h1>Panasonic Remote Control</h1>
+        <h1>{{ cameraLabel }}</h1>
         <p>
-          Préparez vos tests de communication : vérifiez la connexion, gérez les presets et pilotez le flux
-          vidéo.
+          Contrôle simplifié de la caméra Panasonic via l'interface réseau. Utilisez le joystick pour
+          piloter l'orientation et déclenchez les presets essentiels.
         </p>
       </div>
-      <CameraTestButton />
+      <div class="camera-app__header-status">
+        <span class="camera-app__model">{{ cameraModel }}</span>
+        <button type="button" class="ghost" :disabled="infoLoading" @click="refreshInfo">
+          {{ infoLoading ? 'Chargement…' : 'Rafraîchir' }}
+        </button>
+      </div>
     </header>
 
-    <div class="status-wrapper" @click="setContext('status')">
-      <CameraStatusPanel
-        :status="status"
-        :is-loading="isLoading"
-        :error="error"
-        :last-updated="lastUpdated"
-        @retry="refresh"
-      />
-    </div>
+    <p v-if="infoError" class="camera-app__alert">{{ infoError }}</p>
 
-    <section class="workspace">
-      <div class="workspace__left">
-        <div class="camera-selector" @click="setContext('camera-list')">
-          <header class="camera-selector__header">
-            <div>
-              <h2>Caméras disponibles</h2>
-              <p>Choisissez une caméra pour afficher sa prévisualisation.</p>
-            </div>
-            <div class="camera-selector__pagination">
-              <button type="button" @click.stop="goToPreviousPage" :disabled="currentPage === 1">◀</button>
-              <span>Page {{ currentPage }} / {{ totalPages }}</span>
-              <button type="button" @click.stop="goToNextPage" :disabled="currentPage === totalPages">▶</button>
-            </div>
-          </header>
-
-          <ul class="camera-selector__grid">
-            <li v-for="camera in paginatedCameras" :key="camera.id">
-              <button
-                type="button"
-                class="camera-selector__item"
-                :class="{ 'is-selected': camera.id === selectedCameraId }"
-                @click.stop="selectCamera(camera.id)"
-              >
-                <div class="camera-selector__thumbnail" aria-hidden="true">
-                  <span>{{ camera.name.charAt(0) }}</span>
-                </div>
-                <div class="camera-selector__meta">
-                  <h3>{{ camera.name }}</h3>
-                  <p>{{ camera.location }}</p>
-                </div>
-                <span class="camera-selector__status" :data-status="camera.status">
-                  {{ camera.status === 'online' ? 'Connectée' : 'Hors-ligne' }}
-                </span>
-              </button>
-            </li>
-          </ul>
+    <section class="camera-app__content">
+      <div class="camera-feed">
+        <div class="camera-feed__viewport">
+          <iframe
+            title="Flux caméra Panasonic"
+            :src="cameraUrl"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          ></iframe>
         </div>
-
-        <div class="workspace__preview">
-          <CameraPreviewPanel
-            :camera="selectedCamera"
-            :assigned-preset="selectedCameraAssignedPreset"
-            @surface-click="setContext('camera-preview')"
-          />
-        </div>
+        <footer class="camera-feed__footer">
+          <span class="camera-feed__label">Source</span>
+          <code class="camera-feed__url">{{ cameraUrl }}</code>
+        </footer>
+        <ul v-if="cameraSummary" class="camera-feed__meta">
+          <li>{{ cameraSummary }}</li>
+        </ul>
       </div>
 
-      <aside class="workspace__side-panel">
-        <transition name="panel-fade" mode="out-in">
-          <div v-if="activeContext === 'camera-list'" key="camera-list" class="side-panel">
-            <header>
-              <h2>Filtrer les caméras</h2>
-              <p>Affinez la navigation dans la liste des caméras.</p>
-            </header>
+      <aside class="camera-sidebar">
+        <section class="control-card">
+          <header class="control-card__header">
+            <h2>Contrôle PTZ</h2>
+            <span v-if="isCommandPending" class="control-card__badge">Commande en cours…</span>
+          </header>
 
-            <label class="side-panel__field">
-              Caméras par page
-              <select v-model.number="camerasPerPage">
-                <option v-for="option in pageOptions" :key="option" :value="option">{{ option }}</option>
-              </select>
-            </label>
+          <div class="joystick">
+            <span class="joystick__spacer" aria-hidden="true"></span>
+            <button
+              type="button"
+              class="joystick__button"
+              :class="{ 'is-active': activeDirection === 'up' }"
+              aria-label="Déplacer vers le haut"
+              @pointerdown.prevent="handlePointerDown('up', $event)"
+              @pointerup.prevent="handlePointerUp($event)"
+              @pointerleave="handlePointerLeave"
+              @pointercancel="handlePointerCancel"
+              @lostpointercapture="handlePointerCancel"
+              @click.prevent="handleKeyboardClick('up')"
+            >
+              ▲
+            </button>
+            <span class="joystick__spacer" aria-hidden="true"></span>
 
-            <div class="side-panel__list">
-              <h3>Toutes les caméras</h3>
-              <ul>
-                <li v-for="camera in cameraListForFilters" :key="camera.id">
-                  <span class="side-panel__camera-name">{{ camera.label }}</span>
-                  <span class="side-panel__camera-status" :data-status="camera.status">
-                    {{ camera.status === 'online' ? 'Connectée' : 'Hors-ligne' }}
-                  </span>
-                </li>
-              </ul>
-            </div>
+            <button
+              type="button"
+              class="joystick__button"
+              :class="{ 'is-active': activeDirection === 'left' }"
+              aria-label="Déplacer vers la gauche"
+              @pointerdown.prevent="handlePointerDown('left', $event)"
+              @pointerup.prevent="handlePointerUp($event)"
+              @pointerleave="handlePointerLeave"
+              @pointercancel="handlePointerCancel"
+              @lostpointercapture="handlePointerCancel"
+              @click.prevent="handleKeyboardClick('left')"
+            >
+              ◀
+            </button>
+            <button
+              type="button"
+              class="joystick__button joystick__button--center"
+              :class="{ 'is-active': activeDirection === 'stop' }"
+              aria-label="Arrêter le mouvement"
+              @click.prevent="handleStopClick"
+            >
+              ■
+            </button>
+            <button
+              type="button"
+              class="joystick__button"
+              :class="{ 'is-active': activeDirection === 'right' }"
+              aria-label="Déplacer vers la droite"
+              @pointerdown.prevent="handlePointerDown('right', $event)"
+              @pointerup.prevent="handlePointerUp($event)"
+              @pointerleave="handlePointerLeave"
+              @pointercancel="handlePointerCancel"
+              @lostpointercapture="handlePointerCancel"
+              @click.prevent="handleKeyboardClick('right')"
+            >
+              ▶
+            </button>
+
+            <span class="joystick__spacer" aria-hidden="true"></span>
+            <button
+              type="button"
+              class="joystick__button"
+              :class="{ 'is-active': activeDirection === 'down' }"
+              aria-label="Déplacer vers le bas"
+              @pointerdown.prevent="handlePointerDown('down', $event)"
+              @pointerup.prevent="handlePointerUp($event)"
+              @pointerleave="handlePointerLeave"
+              @pointercancel="handlePointerCancel"
+              @lostpointercapture="handlePointerCancel"
+              @click.prevent="handleKeyboardClick('down')"
+            >
+              ▼
+            </button>
+            <span class="joystick__spacer" aria-hidden="true"></span>
           </div>
 
-          <div v-else-if="activeContext === 'status'" key="status" class="side-panel">
-            <header>
-              <h2>Résumé du statut</h2>
-              <p>Synthèse rapide des informations de connexion.</p>
-            </header>
+          <p v-if="controlError" class="control-card__error">{{ controlError }}</p>
+        </section>
 
-            <ul class="side-panel__status" v-if="status">
-              <li>
-                <span class="side-panel__label">UID</span>
-                <span class="side-panel__value">{{ status.uid }}</span>
-              </li>
-              <li>
-                <span class="side-panel__label">Flux</span>
-                <span class="side-panel__value">{{ status.streaming || 'Non communiqué' }}</span>
-              </li>
-              <li v-if="lastUpdated">
-                <span class="side-panel__label">Dernière mise à jour</span>
-                <span class="side-panel__value">{{ new Date(lastUpdated).toLocaleTimeString() }}</span>
-              </li>
-            </ul>
-            <p v-else class="side-panel__empty">Aucune donnée de statut disponible.</p>
+        <section class="preset-card">
+          <header class="preset-card__header">
+            <h2>Presets rapides</h2>
+            <p>Rappels directs des positions essentielles de la caméra.</p>
+          </header>
+
+          <div class="preset-card__grid">
+            <button
+              v-for="preset in presets"
+              :key="preset"
+              type="button"
+              class="preset-card__button"
+              :class="{ 'is-loading': presetBusy === preset }"
+              :disabled="presetBusy !== null && presetBusy !== preset"
+              @click="recallPreset(preset)"
+            >
+              <span>Preset {{ preset }}</span>
+            </button>
           </div>
 
-          <div v-else key="camera-preview" class="side-panel">
-            <PresetGrid
-              :selected-camera="selectedCamera"
-              :assigned-preset="selectedCameraAssignedPreset"
-              @assign="handleAssignPreset"
-            />
-          </div>
-        </transition>
+          <p v-if="presetMessage" class="preset-card__feedback">{{ presetMessage }}</p>
+          <p v-else-if="presetError" class="preset-card__error">{{ presetError }}</p>
+        </section>
       </aside>
     </section>
   </main>
@@ -249,368 +435,375 @@ const cameraListForFilters = computed(() =>
   --bg-app: #020617;
   --surface: #0f172a;
   --surface-raised: #111c2e;
-  --surface-muted: #16213b;
   --surface-highlight: #1d2b4a;
-  --border: #1e293b;
+  --border: #1f2a44;
   --border-strong: #334155;
   --text-primary: #e2e8f0;
   --text-muted: #94a3b8;
-  --accent: #2563eb;
-  --accent-strong: #1d4ed8;
-  --accent-soft: rgba(37, 99, 235, 0.16);
+  --accent: #22d3ee;
+  --accent-strong: #0891b2;
   --danger: #f87171;
-  --success: #22c55e;
-  --shadow-elevated: 0 24px 45px rgba(3, 6, 18, 0.45);
+  --success: #34d399;
+  --shadow-elevated: 0 22px 48px rgba(2, 6, 23, 0.45);
 }
 
 :global(body) {
+  margin: 0;
   background: var(--bg-app);
   color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-.app {
+.camera-app {
   min-height: 100vh;
   padding: clamp(1.5rem, 4vw, 3rem);
   display: flex;
   flex-direction: column;
-  gap: 2rem;
-  max-width: 95%;
-  margin: 0 auto;
-  color: var(--text-primary);
+  gap: 2.5rem;
 }
 
-.app__header {
+.camera-app__header {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-}
-
-@media (min-width: 768px) {
-  .app__header {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
-}
-
-h1 {
-  margin: 0 0 0.5rem;
-  font-size: clamp(2rem, 4vw, 2.75rem);
-}
-
-p {
-  margin: 0;
-  color: var(--text-muted);
-  max-width: 40rem;
-  line-height: 1.6;
-}
-
-.status-wrapper {
-  cursor: pointer;
-}
-
-.workspace {
-  display: grid;
-  gap: 1.5rem;
-}
-
-@media (min-width: 1120px) {
-  .workspace {
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
-    align-items: stretch;
-  }
-}
-
-.workspace__left {
-  display: grid;
   gap: 1.5rem;
 }
 
 @media (min-width: 960px) {
-  .workspace__left {
-    grid-template-rows: minmax(260px, auto) minmax(320px, auto);
+  .camera-app__header {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
   }
 }
 
-.camera-selector,
-.workspace__preview,
-.workspace__side-panel > .side-panel,
-.status-wrapper > * {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 1rem;
-  box-shadow: var(--shadow-elevated);
+.camera-app__header h1 {
+  margin: 0 0 0.5rem;
+  font-size: clamp(2.1rem, 4vw, 2.8rem);
+  font-weight: 700;
 }
 
-.camera-selector {
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-  cursor: pointer;
-}
-
-.camera-selector__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-}
-
-.camera-selector__header h2 {
+.camera-app__header p {
   margin: 0;
-  font-size: 1.1rem;
-}
-
-.camera-selector__header p {
-  margin-top: 0.4rem;
+  max-width: 48rem;
+  line-height: 1.6;
   color: var(--text-muted);
 }
 
-.camera-selector__pagination {
+.camera-app__header-status {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+@media (min-width: 480px) {
+  .camera-app__header-status {
+    align-items: flex-end;
+  }
+}
+
+.camera-app__model {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(34, 211, 238, 0.12);
+  color: #a5f3fc;
+}
+
+button.ghost {
+  appearance: none;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-primary);
+  border-radius: 999px;
+  padding: 0.4rem 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+button.ghost:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+button.ghost:not(:disabled):hover {
+  border-color: var(--accent);
+  background: rgba(34, 211, 238, 0.12);
+}
+
+.camera-app__alert {
+  margin: 0;
+  padding: 0.9rem 1.2rem;
+  border-radius: 0.85rem;
+  background: rgba(248, 113, 113, 0.12);
+  color: #fecaca;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+}
+
+.camera-app__content {
+  display: grid;
+  gap: 1.75rem;
+}
+
+@media (min-width: 1120px) {
+  .camera-app__content {
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 0.75fr);
+    align-items: start;
+  }
+}
+
+.camera-feed {
+  background: var(--surface);
+  border-radius: 1.25rem;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-elevated);
+  padding: clamp(1.25rem, 3vw, 1.75rem);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.camera-feed__viewport {
+  position: relative;
+  border-radius: 1rem;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: radial-gradient(circle at top, rgba(34, 211, 238, 0.22), rgba(15, 23, 42, 0.75));
+}
+
+.camera-feed__viewport iframe {
+  width: 100%;
+  min-height: clamp(240px, 36vw, 480px);
+  border: 0;
+  background: #000;
+}
+
+.camera-feed__footer {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   font-size: 0.9rem;
+  color: var(--text-muted);
 }
 
-.camera-selector__pagination button {
-  appearance: none;
-  border: 1px solid var(--border-strong);
-  background: var(--surface-muted);
-  color: var(--text-primary);
-  border-radius: 999px;
-  padding: 0.4rem 0.8rem;
-  cursor: pointer;
-  transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
-}
-
-.camera-selector__pagination button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.camera-selector__pagination button:not(:disabled):hover {
-  background: var(--surface-highlight);
-  border-color: var(--accent);
-  transform: translateY(-1px);
-}
-
-.camera-selector__grid {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  gap: 1rem;
-  flex-wrap: nowrap;
-}
-
-.camera-selector__grid li {
-  flex: 1;
-}
-
-.camera-selector__item {
-  width: 100%;
-  border: 1px solid transparent;
-  background: var(--surface-raised);
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-  align-items: stretch;
-  padding: 1rem;
-  border-radius: 0.875rem;
-  cursor: pointer;
-  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
-  text-align: left;
-}
-
-.camera-selector__item:hover {
-  transform: translateY(-2px);
-  border-color: var(--accent);
-  box-shadow: 0 18px 30px rgba(11, 16, 32, 0.45);
-}
-
-.camera-selector__item.is-selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.camera-selector__thumbnail {
-  aspect-ratio: 16 / 9;
-  border-radius: 0.75rem;
-  background: linear-gradient(135deg, #1e3a8a, #0ea5e9);
-  color: #f8fafc;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.camera-feed__label {
+  text-transform: uppercase;
   font-weight: 600;
-  font-size: 1.5rem;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 
-.camera-selector__meta {
-  display: grid;
-  gap: 0.35rem;
+.camera-feed__url {
+  padding: 0.25rem 0.6rem;
+  background: rgba(15, 23, 42, 0.85);
+  border-radius: 0.5rem;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  color: var(--text-primary);
 }
 
-.camera-selector__meta h3 {
+.camera-feed__meta {
   margin: 0;
-  font-size: 1rem;
-}
-
-.camera-selector__meta p {
-  margin: 0;
+  padding: 0;
+  list-style: none;
   font-size: 0.85rem;
   color: var(--text-muted);
 }
 
-.camera-selector__status {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 0.35rem 0.75rem;
-  border-radius: 999px;
-  background: rgba(37, 99, 235, 0.12);
-  color: #bfdbfe;
+.camera-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
-.camera-selector__status[data-status='offline'] {
-  background: rgba(248, 113, 113, 0.16);
-  color: #fecaca;
-}
-
-.workspace__preview {
-  padding: 1.5rem;
-  min-height: 320px;
-}
-
-.workspace__side-panel {
-  min-height: 400px;
-}
-
-.side-panel {
-  height: 100%;
+.control-card,
+.preset-card {
+  background: var(--surface);
+  border-radius: 1.25rem;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-elevated);
+  padding: clamp(1.1rem, 2.5vw, 1.6rem);
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  padding: 1.5rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 1rem;
-  box-shadow: var(--shadow-elevated);
 }
 
-.side-panel header h2 {
+.control-card__header,
+.preset-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.control-card__header h2,
+.preset-card__header h2 {
   margin: 0;
   font-size: 1.1rem;
 }
 
-.side-panel header p {
-  margin-top: 0.4rem;
+.control-card__header p,
+.preset-card__header p {
+  margin: 0;
   color: var(--text-muted);
-}
-
-.side-panel__field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+  line-height: 1.5;
   font-size: 0.9rem;
-  font-weight: 600;
 }
 
-.side-panel__field select {
-  border-radius: 0.75rem;
-  border: 1px solid var(--border-strong);
-  padding: 0.45rem 0.75rem;
-  font-size: 0.95rem;
-  background: var(--surface-muted);
-  color: var(--text-primary);
-}
-
-.side-panel__list ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 0.6rem;
-}
-
-.side-panel__list li {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-  font-size: 0.9rem;
-  padding: 0.55rem 0.75rem;
-  border-radius: 0.75rem;
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-}
-
-.side-panel__camera-name {
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.side-panel__camera-status {
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-  background: rgba(37, 99, 235, 0.12);
-  color: #bfdbfe;
-}
-
-.side-panel__camera-status[data-status='offline'] {
-  background: rgba(248, 113, 113, 0.16);
-  color: #fecaca;
-}
-
-.side-panel__status {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 0.75rem;
-}
-
-.side-panel__status li {
-  display: grid;
-  gap: 0.3rem;
-}
-
-.side-panel__label {
+.control-card__badge {
+  align-self: flex-start;
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--text-muted);
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(34, 211, 238, 0.16);
+  color: #a5f3fc;
 }
 
-.side-panel__value {
-  font-size: 0.95rem;
+.joystick {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 0.75rem;
+  justify-items: center;
+  align-items: center;
+}
+
+.joystick__spacer {
+  display: block;
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.joystick__button {
+  appearance: none;
+  width: clamp(3rem, 9vw, 3.75rem);
+  height: clamp(3rem, 9vw, 3.75rem);
+  border-radius: 50%;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.85);
   color: var(--text-primary);
+  font-size: 1.25rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  box-shadow: 0 12px 25px rgba(2, 6, 23, 0.35);
 }
 
-.side-panel__empty {
+.joystick__button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.joystick__button:hover {
+  border-color: var(--accent);
+  background: rgba(34, 211, 238, 0.18);
+}
+
+.joystick__button.is-active {
+  border-color: var(--accent-strong);
+  background: rgba(34, 211, 238, 0.35);
+  transform: translateY(-2px);
+  color: #ecfeff;
+}
+
+.joystick__button--center {
+  width: clamp(3.2rem, 9.5vw, 4rem);
+  height: clamp(3.2rem, 9.5vw, 4rem);
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.control-card__error {
   margin: 0;
-  color: var(--text-muted);
+  font-size: 0.9rem;
+  color: #fecaca;
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: 0.75rem;
+  padding: 0.65rem 0.85rem;
 }
 
-.panel-fade-enter-active,
-.panel-fade-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+.preset-card__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.75rem;
 }
 
-.panel-fade-enter-from,
-.panel-fade-leave-to {
-  opacity: 0;
-  transform: translateY(10px);
+.preset-card__button {
+  appearance: none;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.85rem;
+  background: rgba(15, 23, 42, 0.75);
+  color: var(--text-primary);
+  font-weight: 600;
+  padding: 0.85rem 1rem;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.preset-card__button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(34, 211, 238, 0.18);
+  transform: translateY(-1px);
+}
+
+.preset-card__button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.preset-card__button.is-loading {
+  position: relative;
+}
+
+.preset-card__button.is-loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.preset-card__feedback {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #bbf7d0;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  border-radius: 0.75rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.preset-card__error {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #fecaca;
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: 0.75rem;
+  padding: 0.65rem 0.85rem;
 }
 </style>

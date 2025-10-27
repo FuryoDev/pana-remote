@@ -2,13 +2,14 @@ import 'dotenv/config'
 import { z } from 'zod'
 
 const EnvSchema = z.object({
-  CAM_HOST: z.string().min(1),
-  CAM_PORT: z.coerce.number().int().nonnegative(),
+  CAM_HOST: z.string().min(1).default('10.41.39.153'),
+  CAM_PORT: z.coerce.number().int().nonnegative().default(80),
   CAM_PROTO: z.enum(['http', 'https']).default('http'),
   CAM_USER: z.string().default('admin'),
   CAM_PASS: z.string().default(''),
   REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(3000),
   MIN_CMD_INTERVAL_MS: z.coerce.number().int().nonnegative().default(60),
+  PAN_TILT_SPEED: z.coerce.number().int().min(1).max(49).default(12),
 })
 
 type EnvShape = z.infer<typeof EnvSchema>
