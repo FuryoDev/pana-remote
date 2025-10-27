@@ -2,6 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import CameraStatusPanel from './components/CameraStatusPanel.vue'
 import CameraPreviewPanel from './components/CameraPreviewPanel.vue'
+import CameraTestButton from './components/CameraTestButton.vue'
 import PresetGrid from './components/PresetGrid.vue'
 import { useCameraStatus } from './composables/useCameraStatus'
 
@@ -17,16 +18,16 @@ interface CameraSummary {
 const { status, isLoading, error, lastUpdated, refresh } = useCameraStatus()
 
 const cameras = ref<CameraSummary[]>([
-  { id: 'cam-01', name: 'Cam 1', location: 'Salle principale', status: 'online' },
-  { id: 'cam-02', name: 'Cam 2', location: 'Salle principale', status: 'online' },
-  { id: 'cam-03', name: 'Cam 3', location: 'Niveau 2', status: 'online' },
-  { id: 'cam-04', name: 'Cam 4', location: 'Niveau 2', status: 'offline' },
-  { id: 'cam-05', name: 'Cam 5', location: 'Niveau 1', status: 'online' },
-  { id: 'cam-06', name: 'Cam 6', location: 'Rez-de-chaussée', status: 'online' },
-  { id: 'cam-07', name: 'Cam 7', location: 'Extérieur', status: 'offline' },
-  { id: 'cam-08', name: 'Cam 8', location: 'Extérieur', status: 'online' },
-  { id: 'cam-09', name: 'Cam 9', location: 'Rez-de-chaussée', status: 'online' },
-  { id: 'cam-10', name: 'Cam 10', location: 'Sous-sol', status: 'online' },
+  { id: 'cam-01', name: 'Auditorium A', location: 'Salle principale', status: 'online' },
+  { id: 'cam-02', name: 'Auditorium B', location: 'Salle principale', status: 'online' },
+  { id: 'cam-03', name: 'Balcon A', location: 'Niveau 2', status: 'online' },
+  { id: 'cam-04', name: 'Balcon B', location: 'Niveau 2', status: 'offline' },
+  { id: 'cam-05', name: 'Régie', location: 'Niveau 1', status: 'online' },
+  { id: 'cam-06', name: 'Lobby', location: 'Rez-de-chaussée', status: 'online' },
+  { id: 'cam-07', name: 'Entrée Est', location: 'Extérieur', status: 'offline' },
+  { id: 'cam-08', name: 'Entrée Ouest', location: 'Extérieur', status: 'online' },
+  { id: 'cam-09', name: 'Foyer', location: 'Rez-de-chaussée', status: 'online' },
+  { id: 'cam-10', name: 'Studio', location: 'Sous-sol', status: 'online' },
 ])
 
 const camerasPerPage = ref(5)
@@ -39,6 +40,8 @@ const totalPages = computed(() => {
   return total > 0 ? total : 1
 })
 
+const pageOptions = [5, 10]
+
 const paginatedCameras = computed(() => {
   const start = (currentPage.value - 1) * camerasPerPage.value
   return cameras.value.slice(start, start + camerasPerPage.value)
@@ -50,16 +53,7 @@ watch([camerasPerPage, cameras], () => {
   }
 })
 
-watch(camerasPerPage, (value) => {
-  const totalCameras = cameras.value.length
-  const max = totalCameras > 0 ? totalCameras : 1
-  const sanitized = Math.min(Math.max(Number.isFinite(value) ? Math.floor(value) : 1, 1), max)
-
-  if (sanitized !== value) {
-    camerasPerPage.value = sanitized
-    return
-  }
-
+watch(camerasPerPage, () => {
   currentPage.value = 1
 })
 
@@ -118,23 +112,25 @@ const cameraListForFilters = computed(() =>
 <template>
   <main class="app">
     <header class="app__header">
-      <div class="app__intro">
+      <div>
         <h1>Panasonic Remote Control</h1>
         <p>
           Préparez vos tests de communication : vérifiez la connexion, gérez les presets et pilotez le flux
           vidéo.
         </p>
       </div>
-      <div class="app__status" @click="setContext('status')">
-        <CameraStatusPanel
-          :status="status"
-          :is-loading="isLoading"
-          :error="error"
-          :last-updated="lastUpdated"
-          @retry="refresh"
-        />
-      </div>
+      <CameraTestButton />
     </header>
+
+    <div class="status-wrapper" @click="setContext('status')">
+      <CameraStatusPanel
+        :status="status"
+        :is-loading="isLoading"
+        :error="error"
+        :last-updated="lastUpdated"
+        @retry="refresh"
+      />
+    </div>
 
     <section class="workspace">
       <div class="workspace__left">
@@ -193,13 +189,9 @@ const cameraListForFilters = computed(() =>
 
             <label class="side-panel__field">
               Caméras par page
-              <input
-                type="number"
-                min="1"
-                :max="cameras.length"
-                v-model.number="camerasPerPage"
-                inputmode="numeric"
-              />
+              <select v-model.number="camerasPerPage">
+                <option v-for="option in pageOptions" :key="option" :value="option">{{ option }}</option>
+              </select>
             </label>
 
             <div class="side-panel__list">
@@ -287,38 +279,17 @@ const cameraListForFilters = computed(() =>
   color: var(--text-primary);
 }
 
-
 .app__header {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
 }
 
-.app__intro {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.app__status {
-  cursor: pointer;
-  max-width: min(420px, 100%);
-  align-self: stretch;
-}
-
-.app__status > * {
-  width: 100%;
-}
-
 @media (min-width: 768px) {
   .app__header {
     flex-direction: row;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
-  }
-
-  .app__status {
-    flex-shrink: 0;
-    max-width: 360px;
   }
 }
 
@@ -332,6 +303,10 @@ p {
   color: var(--text-muted);
   max-width: 40rem;
   line-height: 1.6;
+}
+
+.status-wrapper {
+  cursor: pointer;
 }
 
 .workspace {
@@ -428,27 +403,10 @@ p {
   display: flex;
   gap: 1rem;
   flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--accent) transparent;
-  padding-bottom: 0.25rem;
-}
-
-.camera-selector__grid::-webkit-scrollbar {
-  height: 0.5rem;
-}
-
-.camera-selector__grid::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.camera-selector__grid::-webkit-scrollbar-thumb {
-  background: var(--surface-highlight);
-  border-radius: 999px;
 }
 
 .camera-selector__grid li {
-  flex: 0 0 clamp(220px, 22vw, 260px);
+  flex: 1;
 }
 
 .camera-selector__item {
@@ -564,20 +522,13 @@ p {
   font-weight: 600;
 }
 
-.side-panel__field input {
+.side-panel__field select {
   border-radius: 0.75rem;
   border: 1px solid var(--border-strong);
   padding: 0.45rem 0.75rem;
   font-size: 0.95rem;
   background: var(--surface-muted);
   color: var(--text-primary);
-  appearance: textfield;
-}
-
-.side-panel__field input::-webkit-inner-spin-button,
-.side-panel__field input::-webkit-outer-spin-button {
-  margin: 0;
-  appearance: none;
 }
 
 .side-panel__list ul {
@@ -662,5 +613,4 @@ p {
   opacity: 0;
   transform: translateY(10px);
 }
-
 </style>

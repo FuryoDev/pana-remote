@@ -65,22 +65,16 @@ function ensurePresetState(preset: number) {
 }
 
 function loadLayoutsFromStorage() {
-  if (typeof window === 'undefined') {
-    return
-  }
+  if (typeof window === 'undefined') return
 
   try {
     const raw = window.localStorage.getItem(LAYOUT_STORAGE_KEY)
-    if (!raw) {
-      return
-    }
+    if (!raw) return
 
     const parsed = JSON.parse(raw) as Record<string, Array<{ type: string | null }>>
     for (const preset of presets) {
       const storedSlots = parsed?.[preset]
-      if (!Array.isArray(storedSlots)) {
-        continue
-      }
+      if (!Array.isArray(storedSlots)) continue
 
       layouts[preset] = storedSlots.map((slot, index) => ({
         id: `${preset}-${index}`,
@@ -93,9 +87,7 @@ function loadLayoutsFromStorage() {
 }
 
 function persistLayouts() {
-  if (typeof window === 'undefined') {
-    return
-  }
+  if (typeof window === 'undefined') return
 
   const payload: Record<number, Array<{ type: string | null }>> = {}
   for (const preset of presets) {
@@ -137,9 +129,7 @@ async function loadThumbnail(preset: number) {
 }
 
 async function refreshAll() {
-  if (isRefreshing.value) {
-    return
-  }
+  if (isRefreshing.value) return
 
   isRefreshing.value = true
   await Promise.all(presets.map((preset) => loadThumbnail(preset)))
@@ -148,9 +138,7 @@ async function refreshAll() {
 
 async function recallPreset(preset: number) {
   const tile = tiles[preset]!
-  if (tile.recalling) {
-    return
-  }
+  if (tile.recalling) return
 
   tile.recalling = true
   tile.feedback = null
@@ -180,9 +168,7 @@ function resetFeedbackTimers() {
 
   for (const preset of presets) {
     const tile = tiles[preset]!
-    if (!tile?.feedback) {
-      continue
-    }
+    if (!tile?.feedback) continue
 
     const handle = setTimeout(() => {
       if (tiles[preset]) {
@@ -198,19 +184,8 @@ function selectPreset(preset: number) {
   selectedPreset.value = preset
 }
 
-function configurePreset(preset: number) {
-  selectPreset(preset)
-  isEditing.value = true
-}
-
-function closeEditing() {
-  isEditing.value = false
-}
-
 function handlePaletteDragStart(event: DragEvent) {
-  if (!isEditing.value) {
-    return
-  }
+  if (!isEditing.value) return
 
   event.dataTransfer?.setData('application/preset-element', 'button')
   event.dataTransfer?.setData('text/plain', 'Bouton')
@@ -220,9 +195,7 @@ function handlePaletteDragStart(event: DragEvent) {
 }
 
 function handleSlotDragOver(event: DragEvent) {
-  if (!isEditing.value) {
-    return
-  }
+  if (!isEditing.value) return
 
   event.preventDefault()
   if (event.dataTransfer) {
@@ -231,25 +204,17 @@ function handleSlotDragOver(event: DragEvent) {
 }
 
 function handleSlotDrop(preset: number, slotIndex: number, event: DragEvent) {
-  if (!isEditing.value) {
-    return
-  }
+  if (!isEditing.value) return
 
   event.preventDefault()
   const elementType = event.dataTransfer?.getData('application/preset-element')
-  if (elementType !== 'button') {
-    return
-  }
+  if (elementType !== 'button') return
 
   const slots = layouts[preset]
-  if (!slots) {
-    return
-  }
+  if (!slots) return
 
   const currentSlot = slots[slotIndex]
-  if (!currentSlot) {
-    return
-  }
+  if (!currentSlot) return
 
   slots[slotIndex] = {
     ...currentSlot,
@@ -258,19 +223,13 @@ function handleSlotDrop(preset: number, slotIndex: number, event: DragEvent) {
 }
 
 function clearSlot(preset: number, slotIndex: number) {
-  if (!isEditing.value) {
-    return
-  }
+  if (!isEditing.value) return
 
   const slots = layouts[preset]
-  if (!slots) {
-    return
-  }
+  if (!slots) return
 
   const currentSlot = slots[slotIndex]
-  if (!currentSlot) {
-    return
-  }
+  if (!currentSlot) return
 
   slots[slotIndex] = {
     ...currentSlot,
@@ -321,6 +280,7 @@ watch(isEditing, (value) => {
   }
 })
 
+// Fermer automatiquement le mode édition lorsqu'on quitte l'onglet "Gestion"
 watch(activeTab, (tab) => {
   if (tab !== 'management') {
     isEditing.value = false
@@ -351,10 +311,7 @@ const selectedEntry = computed(() =>
 )
 
 const assignedPresetTile = computed(() => {
-  if (typeof props.assignedPreset !== 'number') {
-    return null
-  }
-
+  if (typeof props.assignedPreset !== 'number') return null
   return tiles[props.assignedPreset] ?? null
 })
 
@@ -390,6 +347,7 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
       </button>
     </nav>
 
+    <!-- Onglet Contrôles -->
     <div v-if="activeTab === 'controls'" class="preset-manager__controls">
       <header>
         <h3>Contrôles du preset</h3>
@@ -411,16 +369,21 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
         <p v-if="assignedPresetTile?.feedback" class="feedback">{{ assignedPresetTile?.feedback }}</p>
         <p v-if="assignedPresetTile?.error" class="error">{{ assignedPresetTile?.error }}</p>
       </div>
-      <p v-else class="controls-empty">Aucun preset n’est encore assigné à cette caméra. Rendez-vous dans les onglets Gestion ou Affectations.</p>
+      <p v-else class="controls-empty">
+        Aucun preset n’est encore assigné à cette caméra. Rendez-vous dans les onglets Gestion ou Affectations.
+      </p>
     </div>
 
+    <!-- Onglet Gestion -->
     <div v-else-if="activeTab === 'management'" class="preset-manager__content">
-      <p class="preset-manager__note">
-        Faites défiler les presets pour consulter leurs miniatures. Appuyez sur « Configurer » pour ouvrir l’éditeur et
-        disposer les éléments.
-      </p>
+      <div class="preset-manager__toolbar">
+        <span>Disposition des éléments</span>
+        <button type="button" class="secondary" @click="isEditing = !isEditing">
+          {{ isEditing ? 'Terminer l’édition' : 'Activer l’édition' }}
+        </button>
+      </div>
 
-      <div class="preset-manager__layout" :class="{ 'has-editor': isEditing && selectedEntry }">
+      <div class="preset-manager__layout">
         <div class="preset-manager__list">
           <article
             v-for="entry in presetEntries"
@@ -444,72 +407,71 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
               <button type="button" @click="recallPreset(entry.preset)" :disabled="entry.state.recalling">
                 {{ entry.state.recalling ? 'Envoi…' : 'Rappeler' }}
               </button>
-              <button type="button" class="preset-card__configure" @click="configurePreset(entry.preset)">
+              <button type="button" class="preset-card__configure" @click="selectPreset(entry.preset)">
                 Configurer
               </button>
             </footer>
           </article>
         </div>
 
-        <transition name="editor-fade">
-          <div v-if="isEditing && selectedEntry" class="preset-editor">
-            <header class="preset-editor__header">
-              <div>
-                <h3>Preset {{ selectedEntry.preset }}</h3>
-                <p>Glissez-déposez des éléments pour concevoir votre preset.</p>
-              </div>
-              <div class="preset-editor__actions">
-                <button type="button" class="secondary" @click="closeEditing">Terminer</button>
-                <button type="button" @click="recallPreset(selectedEntry.preset)" :disabled="selectedEntry.state.recalling">
-                  {{ selectedEntry.state.recalling ? 'Envoi…' : 'Rappeler' }}
-                </button>
-              </div>
-            </header>
-
-            <div class="preset-editor__grid">
-              <div
-                v-for="(slot, index) in selectedEntry.slots"
-                :key="slot.id"
-                class="preset-editor__slot"
-                :class="{ 'has-element': slot.type }"
-                @dragover="handleSlotDragOver"
-                @drop="handleSlotDrop(selectedEntry.preset, index, $event)"
-              >
-                <template v-if="slot.type === 'button'">
-                  <button type="button" class="preset-editor__button" draggable="true" @dragstart="handlePaletteDragStart">
-                    Bouton vide
-                  </button>
-                  <button type="button" class="preset-editor__clear" @click="clearSlot(selectedEntry.preset, index)">
-                    Retirer
-                  </button>
-                </template>
-                <template v-else>
-                  <span class="preset-editor__placeholder">Déposez un élément ici</span>
-                </template>
-              </div>
+        <div v-if="selectedEntry" class="preset-editor" :class="{ 'is-readonly': !isEditing }">
+          <header class="preset-editor__header">
+            <div>
+              <h3>Preset {{ selectedEntry.preset }}</h3>
+              <p>
+                {{ isEditing ? 'Glissez-déposez des éléments pour concevoir votre preset.' : 'Activez le mode édition pour modifier la disposition.' }}
+              </p>
             </div>
+            <button type="button" @click="recallPreset(selectedEntry.preset)" :disabled="selectedEntry.state.recalling">
+              {{ selectedEntry.state.recalling ? 'Envoi…' : 'Rappeler' }}
+            </button>
+          </header>
 
-            <aside class="preset-editor__palette">
-              <h4>Éléments disponibles</h4>
-              <p>Faites glisser un bouton vide vers l’emplacement souhaité.</p>
-              <button
-                type="button"
-                class="preset-editor__palette-item"
-                draggable="true"
-                @dragstart="handlePaletteDragStart"
-              >
-                Bouton vide
-              </button>
-              <p class="preset-editor__autosave">Les modifications sont enregistrées automatiquement.</p>
-            </aside>
-
-            <p v-if="selectedEntry.state.feedback" class="feedback">{{ selectedEntry.state.feedback }}</p>
-            <p v-if="selectedEntry.state.error" class="error">{{ selectedEntry.state.error }}</p>
+          <div class="preset-editor__grid">
+            <div
+              v-for="(slot, index) in selectedEntry.slots"
+              :key="slot.id"
+              class="preset-editor__slot"
+              :class="{ 'has-element': slot.type }"
+              @dragover="handleSlotDragOver"
+              @drop="handleSlotDrop(selectedEntry.preset, index, $event)"
+            >
+              <template v-if="slot.type === 'button'">
+                <button type="button" class="preset-editor__button" draggable="true" @dragstart="handlePaletteDragStart">
+                  Bouton vide
+                </button>
+                <button type="button" class="preset-editor__clear" @click="clearSlot(selectedEntry.preset, index)">
+                  Retirer
+                </button>
+              </template>
+              <template v-else>
+                <span class="preset-editor__placeholder">Déposez un élément ici</span>
+              </template>
+            </div>
           </div>
-        </transition>
+
+          <aside class="preset-editor__palette">
+            <h4>Éléments disponibles</h4>
+            <p>Faites glisser un bouton vide vers l’emplacement souhaité.</p>
+            <button
+              type="button"
+              class="preset-editor__palette-item"
+              draggable="true"
+              @dragstart="handlePaletteDragStart"
+              :disabled="!isEditing"
+            >
+              Bouton vide
+            </button>
+            <p class="preset-editor__autosave">Les modifications sont enregistrées automatiquement.</p>
+          </aside>
+
+          <p v-if="selectedEntry.state.feedback" class="feedback">{{ selectedEntry.state.feedback }}</p>
+          <p v-if="selectedEntry.state.error" class="error">{{ selectedEntry.state.error }}</p>
+        </div>
       </div>
     </div>
 
+    <!-- Onglet Affectations -->
     <div v-else class="preset-manager__assignment">
       <header>
         <h3>Affecter un preset</h3>
@@ -544,7 +506,6 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
       </div>
       <p v-else class="assignment-summary__empty">Aucune caméra sélectionnée pour l’instant.</p>
     </div>
-
   </section>
 </template>
 
@@ -594,12 +555,6 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
   transform: translateY(-1px);
 }
 
-.preset-manager__note {
-  margin: 0 0 1rem;
-  color: var(--text-muted);
-  font-size: 0.95rem;
-}
-
 .preset-manager__tabs {
   display: inline-flex;
   gap: 0.5rem;
@@ -636,34 +591,50 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
   gap: 1.25rem;
 }
 
-.preset-manager__layout {
-  display: grid;
-  gap: 1.5rem;
+.preset-manager__toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9rem;
+  font-weight: 600;
 }
 
-.preset-manager__layout.has-editor {
-  align-items: start;
+.preset-manager__toolbar .secondary {
+  appearance: none;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.4rem 1.2rem;
+  cursor: pointer;
+  background: rgba(37, 99, 235, 0.18);
+  color: #dbeafe;
+  transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+
+.preset-manager__toolbar .secondary:hover {
+  background: rgba(37, 99, 235, 0.24);
+  border-color: var(--accent-strong);
+  transform: translateY(-1px);
+}
+
+.preset-manager__layout {
+  display: grid;
+  gap: 1.25rem;
 }
 
 @media (min-width: 1024px) {
-  .preset-manager__layout.has-editor {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  .preset-manager__layout {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   }
 }
 
 .preset-manager__list {
   display: grid;
   gap: 1rem;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   max-height: 420px;
   overflow-y: auto;
   padding-right: 0.25rem;
-}
-
-@media (min-width: 1280px) {
-  .preset-manager__list {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
 }
 
 .preset-card {
@@ -675,7 +646,6 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
   gap: 0.9rem;
   border: 1px solid transparent;
   transition: border-color 0.2s ease, transform 0.2s ease;
-  height: 100%;
 }
 
 .preset-card.is-selected {
@@ -725,7 +695,6 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;
-  margin-top: auto;
 }
 
 .preset-card__footer button {
@@ -766,6 +735,21 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
   position: relative;
 }
 
+.preset-editor.is-readonly::after {
+  content: 'Mode lecture seule activé. Cliquez sur "Activer l\u2019édition" pour modifier.';
+  position: absolute;
+  inset: 1.25rem;
+  background: rgba(2, 6, 23, 0.85);
+  border-radius: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-weight: 600;
+  color: #dbeafe;
+  pointer-events: none;
+}
+
 .preset-editor__header {
   display: flex;
   justify-content: space-between;
@@ -783,14 +767,7 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
   color: var(--text-muted);
 }
 
-.preset-editor__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  align-items: center;
-}
-
-.preset-editor__actions button {
+.preset-editor__header button {
   appearance: none;
   border: none;
   border-radius: 999px;
@@ -801,23 +778,6 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
   background: var(--accent);
   color: #fff;
   transition: background 0.2s ease, transform 0.2s ease;
-}
-
-.preset-editor__actions button:not(.secondary):hover {
-  background: var(--accent-strong);
-  transform: translateY(-1px);
-}
-
-.secondary {
-  border: 1px solid var(--accent);
-  background: rgba(37, 99, 235, 0.18);
-  color: #dbeafe;
-}
-
-.secondary:hover {
-  background: rgba(37, 99, 235, 0.24);
-  border-color: var(--accent-strong);
-  transform: translateY(-1px);
 }
 
 .preset-editor__grid {
@@ -916,17 +876,6 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
 .preset-editor__autosave {
   font-size: 0.75rem;
   color: var(--text-muted);
-}
-
-.editor-fade-enter-active,
-.editor-fade-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-.editor-fade-enter-from,
-.editor-fade-leave-to {
-  opacity: 0;
-  transform: translateX(8px);
 }
 
 .feedback {
@@ -1043,47 +992,5 @@ const tabDefinitions: Array<{ id: PresetTab; label: string }> = [
 .controls-empty {
   margin: 0;
   color: var(--text-muted);
-}
-
-.preset-manager__controls {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.preset-manager__controls header h3 {
-  margin: 0;
-  font-size: 1.05rem;
-}
-
-.preset-manager__controls header p {
-  margin: 0.45rem 0 0;
-  color: var(--text-muted);
-}
-
-.controls-card {
-  border-radius: 0.9rem;
-  border: 1px solid var(--border);
-  background: var(--surface-raised);
-  padding: 1.25rem;
-  display: grid;
-  gap: 0.75rem;
-}
-
-.controls-card button {
-  appearance: none;
-  border: none;
-  border-radius: 999px;
-  padding: 0.6rem 1.6rem;
-  font-weight: 600;
-  background: var(--accent);
-  color: #fff;
-  justify-self: flex-start;
-  cursor: pointer;
-}
-
-.controls-card button:disabled {
-  opacity: 0.6;
-  cursor: progress;
 }
 </style>
