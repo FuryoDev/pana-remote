@@ -3,6 +3,7 @@ export { PanasonicCameraService } from './control.js'
 export type {
   CameraInfo,
   CameraStatus,
+  PtzDirection,
   StreamCommand,
   StreamProtocol,
   ZoomDirection,

@@ -16,6 +16,9 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'surface-click'): void }>()
 
 const isSurfaceAlert = ref(false)
+const LIVE_STREAM_URL = 'http://10.41.39.153/live/index.html'
+
+const isLiveCamera = computed(() => props.camera?.id === 'cam-01')
 
 const statusLabel = computed(() => {
   if (!props.camera) {
@@ -45,7 +48,17 @@ function handleSurfaceClick() {
 
     <div class="preview-panel__surface" :class="{ 'is-alert': isSurfaceAlert }" @click="handleSurfaceClick">
       <div class="preview-panel__video" role="presentation">
-        <p v-if="camera">Prévisualisation de {{ camera.name }}</p>
+        <template v-if="camera">
+          <iframe
+            v-if="isLiveCamera"
+            class="preview-panel__iframe"
+            :src="LIVE_STREAM_URL"
+            :title="`Flux en direct de ${camera.name}`"
+            frameborder="0"
+            allowfullscreen
+          ></iframe>
+          <p v-else>Prévisualisation de {{ camera.name }}</p>
+        </template>
         <p v-else>Choisissez une caméra pour commencer</p>
       </div>
 
@@ -132,6 +145,7 @@ function handleSurfaceClick() {
 }
 
 .preview-panel__video {
+  position: relative;
   aspect-ratio: 16 / 9;
   display: flex;
   align-items: center;
@@ -146,6 +160,16 @@ function handleSurfaceClick() {
 
 .preview-panel__video p {
   margin: 0;
+}
+
+.preview-panel__iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #000;
+  border-radius: inherit;
 }
 
 .preview-panel__details {

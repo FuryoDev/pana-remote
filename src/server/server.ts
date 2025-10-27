@@ -2,7 +2,12 @@ import cors from 'cors'
 import express from 'express'
 import { log } from '../lib/logger.js'
 import { PanasonicCameraClient, PanasonicCameraService } from '../lib/panasonic/index.js'
-import type { StreamCommand, StreamProtocol, ZoomDirection } from '../lib/panasonic/control.js'
+import type {
+  PtzDirection,
+  StreamCommand,
+  StreamProtocol,
+  ZoomDirection,
+} from '../lib/panasonic/control.js'
 
 const app = express()
 app.use(cors())
@@ -18,6 +23,39 @@ app.post('/api/zoom', async (req, res) => {
     }
 
     const response = await service.zoom(direction)
+    res.send(response)
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.post('/api/ptz/move', async (req, res) => {
+  try {
+    const direction = req.body?.direction as PtzDirection | undefined
+    if (!direction) {
+      return res.status(400).json({ error: 'direction required' })
+    }
+
+    const allowed: PtzDirection[] = [
+      'up',
+      'down',
+      'left',
+      'right',
+      'up-left',
+      'up-right',
+      'down-left',
+      'down-right',
+      'stop',
+    ]
+
+    if (!allowed.includes(direction)) {
+      return res.status(400).json({ error: 'unsupported direction' })
+    }
+
+    const rawSpeed = Number(req.body?.speed)
+    const speed = Number.isFinite(rawSpeed) ? rawSpeed : undefined
+    const response = await service.ptzMove(direction, speed)
     res.send(response)
   } catch (error: any) {
     log.error(error)

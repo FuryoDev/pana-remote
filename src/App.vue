@@ -4,6 +4,7 @@ import CameraStatusPanel from './components/CameraStatusPanel.vue'
 import CameraPreviewPanel from './components/CameraPreviewPanel.vue'
 import PresetGrid from './components/PresetGrid.vue'
 import { useCameraStatus } from './composables/useCameraStatus'
+import CameraPtzJoystick from './components/CameraPtzJoystick.vue'
 
 type ActiveContext = 'camera-list' | 'camera-preview' | 'status'
 
@@ -61,6 +62,12 @@ const selectedCameraId = ref(cameras.value[0]?.id ?? null)
 const selectedCamera = computed(() =>
   cameras.value.find((camera) => camera.id === selectedCameraId.value) ?? null,
 )
+
+const isPtzAvailable = computed(
+  () => selectedCamera.value?.id === 'cam-01' && selectedCamera.value?.status === 'online',
+)
+
+const selectedCameraName = computed(() => selectedCamera.value?.name ?? null)
 
 const selectedCameraAssignedPreset = computed(() => {
   const camera = selectedCamera.value
@@ -177,8 +184,14 @@ const cameraListForFilters = computed(() =>
       </div>
 
       <aside class="workspace__side-panel">
+        <CameraPtzJoystick :camera-name="selectedCameraName" :disabled="!isPtzAvailable" />
+
         <transition name="panel-fade" mode="out-in">
-          <div v-if="activeContext === 'camera-list'" key="camera-list" class="side-panel">
+          <div
+            v-if="activeContext === 'camera-list'"
+            key="camera-list"
+            class="side-panel side-panel--context"
+          >
             <header>
               <h2>Filtrer les caméras</h2>
               <p>Affinez la navigation dans la liste des caméras.</p>
@@ -204,7 +217,7 @@ const cameraListForFilters = computed(() =>
             </div>
           </div>
 
-          <div v-else-if="activeContext === 'status'" key="status" class="side-panel">
+          <div v-else-if="activeContext === 'status'" key="status" class="side-panel side-panel--context">
             <header>
               <h2>Résumé du statut</h2>
               <p>Synthèse rapide des informations de connexion.</p>
@@ -227,7 +240,7 @@ const cameraListForFilters = computed(() =>
             <p v-else class="side-panel__empty">Aucune donnée de statut disponible.</p>
           </div>
 
-          <div v-else key="camera-preview" class="side-panel">
+          <div v-else key="camera-preview" class="side-panel side-panel--context">
             <PresetGrid
               :selected-camera="selectedCamera"
               :assigned-preset="selectedCameraAssignedPreset"
@@ -487,6 +500,9 @@ p {
 
 .workspace__side-panel {
   min-height: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
 .side-panel {
@@ -499,6 +515,10 @@ p {
   border: 1px solid var(--border);
   border-radius: 1rem;
   box-shadow: var(--shadow-elevated);
+}
+
+.side-panel--context {
+  flex: 1;
 }
 
 .side-panel header h2 {

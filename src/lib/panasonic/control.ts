@@ -1,5 +1,39 @@
 import { PanasonicCameraClient, type PresetThumbnailPayload } from './client.js'
 
+const SPEED_OFFSET = 50
+const DEFAULT_SPEED = 20
+
+export type PtzDirection =
+  | 'up'
+  | 'down'
+  | 'left'
+  | 'right'
+  | 'up-left'
+  | 'up-right'
+  | 'down-left'
+  | 'down-right'
+  | 'stop'
+
+const PTZ_DIRECTION_VECTORS: Record<PtzDirection, { pan: number; tilt: number }> = {
+  up: { pan: 0, tilt: 1 },
+  down: { pan: 0, tilt: -1 },
+  left: { pan: -1, tilt: 0 },
+  right: { pan: 1, tilt: 0 },
+  'up-left': { pan: -1, tilt: 1 },
+  'up-right': { pan: 1, tilt: 1 },
+  'down-left': { pan: -1, tilt: -1 },
+  'down-right': { pan: 1, tilt: -1 },
+  stop: { pan: 0, tilt: 0 },
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+function formatSpeed(value: number): string {
+  return clamp(Math.round(value), 0, 99).toString().padStart(2, '0')
+}
+
 export type ZoomDirection = 'in' | 'out' | 'stop'
 export type StreamProtocol = 'rtmp' | 'srt' | 'ts'
 export type StreamCommand = 'start' | 'stop'
@@ -88,6 +122,22 @@ export class PanasonicCameraService {
     return this.client.aw_ptz(command, '1')
   }
 
+  async ptzMove(direction: PtzDirection, speed: number = DEFAULT_SPEED) {
+    const vector = PTZ_DIRECTION_VECTORS[direction]
+    if (!vector) {
+      throw new RangeError(`Unsupported PTZ direction: ${direction}`)
+    }
+
+    if (direction === 'stop') {
+      return this.ptzStop()
+    }
+
+    const appliedSpeed = clamp(speed, 0, 49)
+    const panSpeed = formatSpeed(SPEED_OFFSET + vector.pan * appliedSpeed)
+    const tiltSpeed = formatSpeed(SPEED_OFFSET + vector.tilt * appliedSpeed)
+    return this.client.aw_ptz(`#PTS${panSpeed}${tiltSpeed}`, '1')
+  }
+
   async presetRecall(presetNumber: number) {
     const formatted = String(presetNumber).padStart(2, '0')
     return this.client.aw_ptz(`R${formatted}`, '1')
@@ -102,7 +152,7 @@ export class PanasonicCameraService {
   }
 
   async ptzStop() {
-    return this.client.aw_ptz('#PTS', '1')
+    return this.client.aw_ptz('#PTS5050', '1')
   }
 
   async colorBar(enabled: boolean) {
