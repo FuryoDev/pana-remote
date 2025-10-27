@@ -2,7 +2,12 @@ import cors from 'cors'
 import express from 'express'
 import { log } from '../lib/logger.js'
 import { PanasonicCameraClient, PanasonicCameraService } from '../lib/panasonic/index.js'
-import type { StreamCommand, StreamProtocol, ZoomDirection } from '../lib/panasonic/control.js'
+import type {
+  PanTiltDirection,
+  StreamCommand,
+  StreamProtocol,
+  ZoomDirection,
+} from '../lib/panasonic/control.js'
 
 const app = express()
 app.use(cors())
@@ -46,6 +51,28 @@ app.post('/api/ptz/stop', async (_req, res) => {
   }
 })
 
+app.post('/api/camera/pan-tilt', async (req, res) => {
+  try {
+    const direction = req.body?.direction as PanTiltDirection | undefined
+    if (!direction) {
+      return res.status(400).json({ error: 'direction is required' })
+    }
+
+    if (!['up', 'down', 'left', 'right', 'stop'].includes(direction)) {
+      return res.status(400).json({ error: `direction "${direction}" is not supported` })
+    }
+
+    const speedValue = Number(req.body?.speed)
+    const speed = Number.isFinite(speedValue) ? speedValue : undefined
+
+    const response = await service.panTilt(direction, speed)
+    res.send(response)
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
 app.post('/api/camera/test-move', async (_req, res) => {
   try {
     await service.zoom('in')
@@ -66,6 +93,20 @@ app.get('/api/camera/status', async (_req, res) => {
   } catch (error: any) {
     log.error(error)
     res.status(500).json({ error: error.message })
+  }
+})
+
+app.get('/api/camera/info', async (_req, res) => {
+  try {
+    const info = await service.info()
+    res.json({ ...info, receivedAt: new Date().toISOString() })
+  } catch (error: any) {
+    log.error(error)
+    const message =
+      error instanceof Error
+        ? `Impossible de récupérer les informations de la caméra : ${error.message}`
+        : "Impossible de récupérer les informations de la caméra"
+    res.status(502).json({ error: message })
   }
 })
 
