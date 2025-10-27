@@ -2,13 +2,37 @@ import cors from 'cors'
 import express from 'express'
 import { log } from '../lib/logger.js'
 import { PanasonicCameraClient, PanasonicCameraService } from '../lib/panasonic/index.js'
-import type { StreamCommand, StreamProtocol, ZoomDirection } from '../lib/panasonic/control.js'
+import type {
+  PanTiltDirection,
+  StreamCommand,
+  StreamProtocol,
+  ZoomDirection,
+} from '../lib/panasonic/control.js'
 
 const app = express()
 app.use(cors())
 app.use(express.json())
 
 const service = new PanasonicCameraService(new PanasonicCameraClient())
+
+app.post('/api/ptz/move', async (req, res) => {
+  try {
+    const direction = req.body?.direction as PanTiltDirection | undefined
+    if (!direction) {
+      return res.status(400).json({ error: 'direction required' })
+    }
+
+    if (!['stop', 'up', 'down', 'left', 'right'].includes(direction)) {
+      return res.status(400).json({ error: 'unsupported direction' })
+    }
+
+    const response = await service.panTilt(direction)
+    res.send(response)
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
 
 app.post('/api/zoom', async (req, res) => {
   try {

@@ -1,8 +1,25 @@
 import { PanasonicCameraClient, type PresetThumbnailPayload } from './client.js'
 
+const SPEED_OFFSET = 50
+const MOVE_SPEED = 20
+
+function formatSpeed(value: number): string {
+  const clamped = Math.max(0, Math.min(99, Math.round(value)))
+  return clamped.toString().padStart(2, '0')
+}
+
+const PAN_TILT_COMMANDS: Record<PanTiltDirection, string> = {
+  stop: '#PTS5050',
+  up: `#PTS${formatSpeed(SPEED_OFFSET)}${formatSpeed(SPEED_OFFSET + MOVE_SPEED)}`,
+  down: `#PTS${formatSpeed(SPEED_OFFSET)}${formatSpeed(SPEED_OFFSET - MOVE_SPEED)}`,
+  left: `#PTS${formatSpeed(SPEED_OFFSET - MOVE_SPEED)}${formatSpeed(SPEED_OFFSET)}`,
+  right: `#PTS${formatSpeed(SPEED_OFFSET + MOVE_SPEED)}${formatSpeed(SPEED_OFFSET)}`,
+}
+
 export type ZoomDirection = 'in' | 'out' | 'stop'
 export type StreamProtocol = 'rtmp' | 'srt' | 'ts'
 export type StreamCommand = 'start' | 'stop'
+export type PanTiltDirection = 'stop' | 'up' | 'down' | 'left' | 'right'
 
 export interface CameraStatus {
   uid: string
@@ -82,6 +99,15 @@ function coerceNumber(value: string | number | undefined | null): number | null 
 
 export class PanasonicCameraService {
   constructor(private readonly client: PanasonicCameraClient) {}
+
+  async panTilt(direction: PanTiltDirection) {
+    const command = PAN_TILT_COMMANDS[direction]
+    if (!command) {
+      throw new Error(`Unsupported direction: ${direction}`)
+    }
+
+    return this.client.aw_ptz(command, '1')
+  }
 
   async zoom(direction: ZoomDirection) {
     const command = direction === 'in' ? 'Z=1' : direction === 'out' ? 'Z=2' : 'Z50'
