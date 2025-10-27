@@ -57,13 +57,13 @@ function handleSurfaceClick() {
 
     <div class="preview-panel__details" v-if="camera">
       <div>
-        <span class="preview-panel__label">Preset assigné</span>
+        <span class="preview-panel__label">Preset assigné: </span>
         <span class="preview-panel__value">
           {{ assignedPreset ? `Preset ${assignedPreset}` : 'Aucun preset associé' }}
         </span>
       </div>
       <div>
-        <span class="preview-panel__label">Statut</span>
+        <span class="preview-panel__label">Statut: </span>
         <span class="preview-panel__value">{{ statusLabel }}</span>
       </div>
     </div>

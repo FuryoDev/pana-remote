@@ -2,7 +2,6 @@
 import { computed, reactive, ref, watch } from 'vue'
 import CameraStatusPanel from './components/CameraStatusPanel.vue'
 import CameraPreviewPanel from './components/CameraPreviewPanel.vue'
-import CameraTestButton from './components/CameraTestButton.vue'
 import PresetGrid from './components/PresetGrid.vue'
 import { useCameraStatus } from './composables/useCameraStatus'
 
@@ -18,16 +17,16 @@ interface CameraSummary {
 const { status, isLoading, error, lastUpdated, refresh } = useCameraStatus()
 
 const cameras = ref<CameraSummary[]>([
-  { id: 'cam-01', name: 'Auditorium A', location: 'Salle principale', status: 'online' },
-  { id: 'cam-02', name: 'Auditorium B', location: 'Salle principale', status: 'online' },
-  { id: 'cam-03', name: 'Balcon A', location: 'Niveau 2', status: 'online' },
-  { id: 'cam-04', name: 'Balcon B', location: 'Niveau 2', status: 'offline' },
-  { id: 'cam-05', name: 'Régie', location: 'Niveau 1', status: 'online' },
-  { id: 'cam-06', name: 'Lobby', location: 'Rez-de-chaussée', status: 'online' },
-  { id: 'cam-07', name: 'Entrée Est', location: 'Extérieur', status: 'offline' },
-  { id: 'cam-08', name: 'Entrée Ouest', location: 'Extérieur', status: 'online' },
-  { id: 'cam-09', name: 'Foyer', location: 'Rez-de-chaussée', status: 'online' },
-  { id: 'cam-10', name: 'Studio', location: 'Sous-sol', status: 'online' },
+  { id: 'cam-01', name: 'CAM 1', location: 'Unknown', status: 'online' },
+  { id: 'cam-02', name: 'CAM 2', location: 'Unknown', status: 'online' },
+  { id: 'cam-03', name: 'CAM 3', location: 'Unknown', status: 'online' },
+  { id: 'cam-04', name: 'CAM 4', location: 'Unknown', status: 'offline' },
+  { id: 'cam-05', name: 'CAM 5', location: 'Unknown', status: 'online' },
+  { id: 'cam-06', name: 'CAM 6', location: 'Unknown', status: 'online' },
+  { id: 'cam-07', name: 'CAM 7', location: 'Unknown', status: 'offline' },
+  { id: 'cam-08', name: 'CAM 8', location: 'Unknown', status: 'online' },
+  { id: 'cam-09', name: 'CAM 9', location: 'Unknown', status: 'online' },
+  { id: 'cam-10', name: 'CAM 10', location: 'Unknown', status: 'online' },
 ])
 
 const camerasPerPage = ref(5)
@@ -119,7 +118,6 @@ const cameraListForFilters = computed(() =>
           vidéo.
         </p>
       </div>
-      <CameraTestButton />
     </header>
 
     <div class="status-wrapper" @click="setContext('status')">
@@ -156,11 +154,10 @@ const cameraListForFilters = computed(() =>
                 @click.stop="selectCamera(camera.id)"
               >
                 <div class="camera-selector__thumbnail" aria-hidden="true">
-                  <span>{{ camera.name.charAt(0) }}</span>
+                  <span>{{ camera.name}}</span>
                 </div>
                 <div class="camera-selector__meta">
-                  <h3>{{ camera.name }}</h3>
-                  <p>{{ camera.location }}</p>
+                  <p> Location: {{ camera.location }}</p>
                 </div>
                 <span class="camera-selector__status" :data-status="camera.status">
                   {{ camera.status === 'online' ? 'Connectée' : 'Hors-ligne' }}
