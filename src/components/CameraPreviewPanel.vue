@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 type CameraPreview = {
   id: string
@@ -16,9 +16,19 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'surface-click'): void }>()
 
 const isSurfaceAlert = ref(false)
-const LIVE_STREAM_URL = 'http://10.41.39.153/live/index.html'
+const snapshotVersion = ref(0)
+const snapshotError = ref<string | null>(null)
+let intervalHandle: number | null = null
 
 const isLiveCamera = computed(() => props.camera?.id === 'cam-01')
+
+const snapshotUrl = computed(() => {
+  if (!isLiveCamera.value) {
+    return null
+  }
+
+  return `/api/stream/live/snapshot?t=${snapshotVersion.value}`
+})
 
 const statusLabel = computed(() => {
   if (!props.camera) {
@@ -32,6 +42,45 @@ function handleSurfaceClick() {
   isSurfaceAlert.value = !isSurfaceAlert.value
   emit('surface-click')
 }
+
+function refreshSnapshot() {
+  if (!isLiveCamera.value) {
+    return
+  }
+
+  snapshotVersion.value = Date.now()
+}
+
+function handleSnapshotError() {
+  snapshotError.value = "Flux indisponible — vérifiez le proxy vidéo"
+}
+
+function handleSnapshotLoad() {
+  snapshotError.value = null
+}
+
+watch(
+  isLiveCamera,
+  (active) => {
+    if (intervalHandle) {
+      clearInterval(intervalHandle)
+      intervalHandle = null
+    }
+
+    snapshotError.value = null
+    if (active) {
+      refreshSnapshot()
+      intervalHandle = window.setInterval(refreshSnapshot, 1000)
+    }
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(() => {
+  if (intervalHandle) {
+    clearInterval(intervalHandle)
+  }
+})
 </script>
 
 <template>
@@ -49,14 +98,17 @@ function handleSurfaceClick() {
     <div class="preview-panel__surface" :class="{ 'is-alert': isSurfaceAlert }" @click="handleSurfaceClick">
       <div class="preview-panel__video" role="presentation">
         <template v-if="camera">
-          <iframe
-            v-if="isLiveCamera"
-            class="preview-panel__iframe"
-            :src="LIVE_STREAM_URL"
-            :title="`Flux en direct de ${camera.name}`"
-            frameborder="0"
-            allowfullscreen
-          ></iframe>
+          <template v-if="isLiveCamera">
+            <img
+              v-if="snapshotUrl"
+              class="preview-panel__stream"
+              :src="snapshotUrl"
+              :alt="`Flux en direct de ${camera.name}`"
+              @error="handleSnapshotError"
+              @load="handleSnapshotLoad"
+            />
+            <p v-if="snapshotError" class="preview-panel__error">{{ snapshotError }}</p>
+          </template>
           <p v-else>Prévisualisation de {{ camera.name }}</p>
         </template>
         <p v-else>Choisissez une caméra pour commencer</p>
@@ -162,14 +214,27 @@ function handleSurfaceClick() {
   margin: 0;
 }
 
-.preview-panel__iframe {
+.preview-panel__stream {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  border: 0;
-  background: #000;
+  object-fit: cover;
   border-radius: inherit;
+}
+
+.preview-panel__error {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.85);
+  color: #fca5a5;
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 1rem;
 }
 
 .preview-panel__details {
