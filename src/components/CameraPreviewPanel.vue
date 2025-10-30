@@ -16,26 +16,22 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'surface-click'): void }>()
 
 const isSurfaceAlert = ref(false)
-const snapshotVersion = ref(0)
+const tick = ref(0)
 const snapshotError = ref<string | null>(null)
 let intervalHandle: number | null = null
 
-const isLiveCamera = computed(() => props.camera?.id === 'cam-01')
-
-const snapshotUrl = computed(() => {
-  if (!isLiveCamera.value) {
-    return null
-  }
-
-  return `/api/stream/live/snapshot?t=${snapshotVersion.value}`
-})
+// Endpoints pour UNE SEULE caméra (placeholder CAM 1)
+const MJPEG_URL = '/api/stream/live/mjpeg'
+const SNAPSHOT_URL = '/api/stream/live/snapshot'
 
 const statusLabel = computed(() => {
-  if (!props.camera) {
-    return 'Aucune caméra sélectionnée'
-  }
-
+  if (!props.camera) return 'Aucune caméra sélectionnée'
   return props.camera.status === 'online' ? 'Connectée' : 'Hors-ligne'
+})
+
+const snapshotSrc = computed(() => {
+  if (!props.camera) return null
+  return `${SNAPSHOT_URL}?t=${tick.value}`
 })
 
 function handleSurfaceClick() {
@@ -44,42 +40,38 @@ function handleSurfaceClick() {
 }
 
 function refreshSnapshot() {
-  if (!isLiveCamera.value) {
-    return
-  }
-
-  snapshotVersion.value = Date.now()
+  if (!props.camera) return
+  tick.value = Date.now()
 }
 
 function handleSnapshotError() {
-  snapshotError.value = "Flux indisponible — vérifiez le proxy vidéo"
+  snapshotError.value = 'Flux indisponible — vérifiez le proxy vidéo'
 }
 
 function handleSnapshotLoad() {
   snapshotError.value = null
 }
 
+// (Re)démarre le polling snapshots quand la caméra/statut change
 watch(
-  isLiveCamera,
-  (active) => {
-    if (intervalHandle) {
-      clearInterval(intervalHandle)
-      intervalHandle = null
-    }
+    () => [props.camera?.id, props.camera?.status],
+    () => {
+      if (intervalHandle) {
+        clearInterval(intervalHandle)
+        intervalHandle = null
+      }
+      snapshotError.value = null
 
-    snapshotError.value = null
-    if (active) {
-      refreshSnapshot()
-      intervalHandle = window.setInterval(refreshSnapshot, 1000)
-    }
-  },
-  { immediate: true },
+      if (props.camera && props.camera.status === 'online') {
+        refreshSnapshot()
+        intervalHandle = window.setInterval(refreshSnapshot, 1000)
+      }
+    },
+    { immediate: true },
 )
 
 onBeforeUnmount(() => {
-  if (intervalHandle) {
-    clearInterval(intervalHandle)
-  }
+  if (intervalHandle) clearInterval(intervalHandle)
 })
 </script>
 
@@ -98,18 +90,26 @@ onBeforeUnmount(() => {
     <div class="preview-panel__surface" :class="{ 'is-alert': isSurfaceAlert }" @click="handleSurfaceClick">
       <div class="preview-panel__video" role="presentation">
         <template v-if="camera">
-          <template v-if="isLiveCamera">
-            <img
-              v-if="snapshotUrl"
+          <!-- 1) MJPEG direct si dispo côté backend -->
+          <img
+              v-if="camera.status === 'online'"
               class="preview-panel__stream"
-              :src="snapshotUrl"
-              :alt="`Flux en direct de ${camera.name}`"
+              :src="MJPEG_URL"
+              alt="Flux MJPEG"
               @error="handleSnapshotError"
               @load="handleSnapshotLoad"
-            />
-            <p v-if="snapshotError" class="preview-panel__error">{{ snapshotError }}</p>
-          </template>
-          <p v-else>Prévisualisation de {{ camera.name }}</p>
+          />
+          <!-- 2) Fallback snapshots (polling) -->
+          <img
+              v-else-if="snapshotSrc"
+              class="preview-panel__stream"
+              :src="snapshotSrc"
+              alt="Flux (snapshots)"
+              @error="handleSnapshotError"
+              @load="handleSnapshotLoad"
+          />
+          <!-- Message d'erreur overlay si le flux échoue -->
+          <p v-if="snapshotError" class="preview-panel__error">{{ snapshotError }}</p>
         </template>
         <p v-else>Choisissez une caméra pour commencer</p>
       </div>
@@ -132,7 +132,6 @@ onBeforeUnmount(() => {
         <span class="preview-panel__value">{{ statusLabel }}</span>
       </div>
     </div>
-
   </section>
 </template>
 
@@ -160,7 +159,6 @@ onBeforeUnmount(() => {
   margin: 0.35rem 0 0;
   color: var(--text-muted);
 }
-
 
 .preview-panel__status {
   display: inline-flex;
