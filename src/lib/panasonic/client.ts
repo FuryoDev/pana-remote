@@ -1,7 +1,7 @@
 import { camBaseUrl, env } from '../env.js'
 import { log } from '../logger.js'
 
-function buildAuthHeader(): Record<string, string> {
+export function buildCameraAuthHeaders(): Record<string, string> {
   if (!env.CAM_USER) {
     return {}
   }
@@ -10,7 +10,7 @@ function buildAuthHeader(): Record<string, string> {
   return { Authorization: `Basic ${token}` }
 }
 
-function buildUrl(path: string, params: Record<string, string>): string {
+export function buildCameraUrl(path: string, params: Record<string, string>): string {
   const url = new URL(path, camBaseUrl)
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value)
@@ -35,7 +35,7 @@ export class PanasonicCameraClient {
       await new Promise((resolve) => setTimeout(resolve, env.MIN_CMD_INTERVAL_MS - delta))
     }
 
-    const url = buildUrl(path, params)
+    const url = buildCameraUrl(path, params)
     log.debug({ url }, 'GET')
 
     const controller = new AbortController()
@@ -43,7 +43,7 @@ export class PanasonicCameraClient {
 
     try {
       const response = await fetch(url, {
-        headers: buildAuthHeader(),
+        headers: buildCameraAuthHeaders(),
         signal: controller.signal as any,
       })
 
