@@ -36,6 +36,9 @@ const frameTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const isLoadingStream = ref(false)
 const streamError = ref<string | null>(null)
 const isStreamActive = ref(false)
+const isTestingControls = ref(false)
+const testMessage = ref<string | null>(null)
+const testLog = ref<string[]>([])
 
 const isLiveCamera = computed(() => props.camera?.id === 'cam-01')
 const isCameraOnline = computed(() => props.camera?.status === 'online')
@@ -66,6 +69,7 @@ const overlayMessage = computed(() => {
 // Endpoints pour UNE SEULE caméra (placeholder CAM 1)
 const MJPEG_URL = '/api/stream/live/mjpeg'
 const SNAPSHOT_URL = '/api/stream/live/snapshot'
+const tick = ref(Date.now())
 
 const statusLabel = computed(() => {
   if (!props.camera) return 'Aucune caméra sélectionnée'
@@ -80,6 +84,89 @@ const snapshotSrc = computed(() => {
 function handleSurfaceClick() {
   isSurfaceAlert.value = !isSurfaceAlert.value
   emit('surface-click')
+}
+
+function wait(delay: number) {
+  return new Promise((resolve) => setTimeout(resolve, delay))
+}
+
+async function runControlTest() {
+  if (isTestingControls.value) {
+    return
+  }
+
+  isTestingControls.value = true
+  testMessage.value = null
+  testLog.value = []
+
+  const appendLog = (message: string) => {
+    testLog.value = [...testLog.value, message]
+  }
+
+  const ensureOk = async (request: Promise<Response>) => {
+    const response = await request
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(text || `Requête échouée (${response.status})`)
+    }
+    return response
+  }
+
+  try {
+    appendLog('Lecture de la position actuelle…')
+    await ensureOk(fetch('/api/ptz/location'))
+    appendLog('Position récupérée.')
+
+    appendLog('Déplacement de la caméra…')
+    await ensureOk(
+      fetch('/api/ptz/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ direction: 'up-right', speed: 12 }),
+      }),
+    )
+
+    await wait(1200)
+
+    await ensureOk(
+      fetch('/api/ptz/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    appendLog('Mouvement terminé.')
+
+    appendLog('Déclenchement du focus…')
+    await ensureOk(
+      fetch('/api/camera/focus', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ direction: 'near', speed: 10 }),
+      }),
+    )
+
+    await wait(800)
+
+    await ensureOk(
+      fetch('/api/camera/focus', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ direction: 'stop' }),
+      }),
+    )
+    appendLog('Focus relâché.')
+
+    appendLog('Zoom non testé (action ignorée pour ce scénario).')
+    appendLog('Réglage de vitesse non testé (action ignorée pour ce scénario).')
+
+    testMessage.value = 'Séquence de test effectuée avec succès.'
+  } catch (error: any) {
+    const message = error instanceof Error ? error.message : 'Erreur inattendue'
+    testMessage.value = `Échec du test : ${message}`
+    appendLog("Le test a été interrompu en raison d'une erreur.")
+  } finally {
+    isTestingControls.value = false
+  }
 }
 
 function triggerCamera(action: 'start' | 'stop') {
@@ -282,6 +369,20 @@ onBeforeUnmount(() => {
         <span class="preview-panel__label">Statut: </span>
         <span class="preview-panel__value">{{ statusLabel }}</span>
       </div>
+      <div class="preview-panel__test">
+        <button
+          type="button"
+          class="preview-panel__test-button"
+          :disabled="isTestingControls"
+          @click="runControlTest"
+        >
+          {{ isTestingControls ? 'Test en cours…' : 'Tester les actions caméra' }}
+        </button>
+        <p v-if="testMessage" class="preview-panel__test-message">{{ testMessage }}</p>
+        <ul v-if="testLog.length" class="preview-panel__test-log">
+          <li v-for="(entry, index) in testLog" :key="index">{{ entry }}</li>
+        </ul>
+      </div>
     </div>
   </section>
 </template>
@@ -403,6 +504,53 @@ onBeforeUnmount(() => {
 .preview-panel__details {
   display: grid;
   gap: 0.75rem;
+}
+
+.preview-panel__test {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.preview-panel__test-button {
+  align-self: flex-start;
+  background: linear-gradient(120deg, rgba(59, 130, 246, 0.9), rgba(14, 165, 233, 0.85));
+  border: none;
+  border-radius: 999px;
+  color: #f8fafc;
+  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  padding: 0.55rem 1.2rem;
+  text-transform: uppercase;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+.preview-panel__test-button:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.preview-panel__test-button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+  transform: none;
+}
+
+.preview-panel__test-message {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.preview-panel__test-log {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
 }
 
 .preview-panel__label {
