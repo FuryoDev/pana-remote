@@ -2,8 +2,6 @@ import cors from 'cors'
 import express from 'express'
 import { log } from '../lib/logger.js'
 import { PanasonicCameraClient, PanasonicCameraService } from '../lib/panasonic/index.js'
-import { createLiveStreamRouter } from './routes/liveStream.js'
-import { createControlRouter } from './routes/controlLayouts.js'
 import type {
   PtzDirection,
   StreamCommand,

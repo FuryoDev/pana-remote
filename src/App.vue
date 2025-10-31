@@ -4,7 +4,6 @@ import CameraStatusPanel from './components/CameraStatusPanel.vue'
 import CameraPreviewPanel from './components/CameraPreviewPanel.vue'
 import PresetGrid from './components/PresetGrid.vue'
 import { useCameraStatus } from './composables/useCameraStatus'
-import ControlContainer from './components/ControlContainer.vue'
 
 type ActiveContext = 'camera-list' | 'camera-preview' | 'status'
 
@@ -180,7 +179,7 @@ const cameraListForFilters = computed(() =>
       </div>
 
       <aside class="workspace__side-panel">
-        <ControlContainer :camera-id="selectedCameraId" :camera-name="selectedCameraName" />
+        <CameraPtzJoystick :camera-name="selectedCameraName" :disabled="!isPtzAvailable" />
 
         <transition name="panel-fade" mode="out-in">
           <div
