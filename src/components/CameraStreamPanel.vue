@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed, ref, watchEffect } from 'vue'
-import type { CameraStatusResponse, StreamProtocol } from '../types/camera'
+import { computed, onBeforeUnmount, ref, watch, watchEffect } from 'vue'
 
-const props = defineProps<{
-  status: CameraStatusResponse | null
-}>()
+type StreamProtocol = 'rtmp' | 'srt' | 'ts'
 
+type CameraStatusResponse = {
+  streaming?: string | null  // description multi-ligne éventuelle
+  online?: boolean
+}
+
+const props = defineProps<{ status: CameraStatusResponse | null }>()
 const emit = defineEmits<{ (e: 'refresh'): void }>()
 
 const protocol = ref<StreamProtocol>('rtmp')
@@ -13,23 +16,27 @@ const isSubmitting = ref(false)
 const feedback = ref<string | null>(null)
 const feedbackTone = ref<'success' | 'error'>('success')
 
+// Endpoints pour UNE SEULE caméra (placeholder CAM 1)
+const MJPEG_URL = '/api/stream/live/mjpeg'
+const SNAPSHOT_URL = '/api/stream/live/snapshot'
+// Si tu exposes du HLS côté backend, tu peux activer cette URL et la balise <video> plus bas
+// const HLS_URL = '/api/stream/live/index.m3u8'
+
+const tick = ref(0)
+let snapshotTimer: number | null = null
+
 const streamingDescription = computed(() => {
   const raw = props.status?.streaming?.trim()
-  if (!raw) {
-    return ['Flux inactif']
-  }
-
-  return raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  if (!raw) return ['Flux inactif']
+  return raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
 })
 
-async function sendCommand(command: 'start' | 'stop') {
-  if (isSubmitting.value) {
-    return
-  }
+const snapshotSrc = computed(() => `${SNAPSHOT_URL}?t=${tick.value}`)
 
+async function sendCommand(command: 'start' | 'stop') {
+  if (isSubmitting.value) return
   feedback.value = null
   isSubmitting.value = true
-
   try {
     const response = await fetch(`/api/stream/${protocol.value}`, {
       method: 'POST',
@@ -37,33 +44,48 @@ async function sendCommand(command: 'start' | 'stop') {
       body: JSON.stringify({ command }),
     })
     const payload = await response.json().catch(() => ({}))
-
-    if (!response.ok) {
-      throw new Error(payload.error ?? `HTTP ${response.status}`)
-    }
-
+    if (!response.ok) throw new Error(payload.error ?? `HTTP ${response.status}`)
     feedbackTone.value = 'success'
     feedback.value = command === 'start' ? 'Flux démarré' : 'Flux arrêté'
     emit('refresh')
-  } catch (error: any) {
+  } catch (e: any) {
     feedbackTone.value = 'error'
-    feedback.value = error?.message ?? 'Commande refusée'
+    feedback.value = e?.message ?? 'Commande refusée'
   } finally {
     isSubmitting.value = false
   }
 }
 
 watchEffect((onCleanup) => {
-  if (!feedback.value) {
-    return
-  }
-
-  const timer = setTimeout(() => {
-    feedback.value = null
-  }, 2500)
-
+  if (!feedback.value) return
+  const timer = setTimeout(() => (feedback.value = null), 2500)
   onCleanup(() => clearTimeout(timer))
 })
+
+function startSnapshotLoop() {
+  stopSnapshotLoop()
+  if (!props.status?.online) return
+  tick.value = Date.now()
+  snapshotTimer = window.setInterval(() => (tick.value = Date.now()), 1000)
+}
+function stopSnapshotLoop() {
+  if (snapshotTimer) {
+    clearInterval(snapshotTimer)
+    snapshotTimer = null
+  }
+}
+
+watch(
+    () => props.status?.online,
+    () => {
+      // On démarre une preview "safe" par défaut : MJPEG ou snapshots.
+      // (Si tu passes au HLS, tu peux stopper ce fallback.)
+      startSnapshotLoop()
+    },
+    { immediate: true },
+)
+
+onBeforeUnmount(stopSnapshotLoop)
 </script>
 
 <template>
@@ -77,7 +99,18 @@ watchEffect((onCleanup) => {
 
     <div class="preview">
       <div class="preview-surface">
-        <p>Prévisualisation vidéo à intégrer</p>
+        <!-- OPTION A : HLS si dispo (à activer si ton backend sert un .m3u8) -->
+        <!--
+        <video class="player" :src="HLS_URL" autoplay muted playsinline controls>
+          Votre navigateur ne supporte pas HLS nativement.
+        </video>
+        -->
+
+        <!-- OPTION B : MJPEG direct (fonctionne sans lib externe) -->
+        <img class="player" :src="MJPEG_URL" alt="Flux MJPEG" />
+
+        <!-- OPTION C (fallback) : snapshots (polling) -->
+        <!-- <img class="player" :src="snapshotSrc" alt="Snapshots du flux" /> -->
       </div>
     </div>
 
@@ -149,12 +182,13 @@ h2 {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #4f46e5;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  font-size: 0.85rem;
   background: rgba(79, 70, 229, 0.05);
+}
+
+.player {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .controls {

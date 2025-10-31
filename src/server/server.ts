@@ -12,6 +12,8 @@ import type {
 const app = express()
 app.use(cors())
 app.use(express.json())
+app.use('/api/stream/live', createLiveStreamRouter())
+app.use('/api/control', createControlRouter())
 
 const service = new PanasonicCameraService(new PanasonicCameraClient())
 
@@ -78,6 +80,28 @@ app.post('/api/ptz/stop', async (_req, res) => {
   try {
     const response = await service.ptzStop()
     res.send(response)
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.post('/api/camera/color-bar', async (req, res) => {
+  try {
+    const enabled = Boolean(req.body?.enabled)
+    const response = await service.colorBar(enabled)
+    res.json({ success: true, raw: response })
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.post('/api/camera/autofocus', async (req, res) => {
+  try {
+    const enabled = Boolean(req.body?.enabled)
+    const response = await service.autofocus(enabled)
+    res.json({ success: true, raw: response })
   } catch (error: any) {
     log.error(error)
     res.status(500).json({ error: error.message })

@@ -4,7 +4,6 @@ import CameraStatusPanel from './components/CameraStatusPanel.vue'
 import CameraPreviewPanel from './components/CameraPreviewPanel.vue'
 import PresetGrid from './components/PresetGrid.vue'
 import { useCameraStatus } from './composables/useCameraStatus'
-import CameraPtzJoystick from './components/CameraPtzJoystick.vue'
 
 type ActiveContext = 'camera-list' | 'camera-preview' | 'status'
 
@@ -61,10 +60,6 @@ const selectedCameraId = ref(cameras.value[0]?.id ?? null)
 
 const selectedCamera = computed(() =>
   cameras.value.find((camera) => camera.id === selectedCameraId.value) ?? null,
-)
-
-const isPtzAvailable = computed(
-  () => selectedCamera.value?.id === 'cam-01' && selectedCamera.value?.status === 'online',
 )
 
 const selectedCameraName = computed(() => selectedCamera.value?.name ?? null)
@@ -345,6 +340,7 @@ p {
 .camera-selector,
 .workspace__preview,
 .workspace__side-panel > .side-panel,
+.workspace__side-panel > .control-container,
 .status-wrapper > * {
   background: var(--surface);
   border: 1px solid var(--border);

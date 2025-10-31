@@ -63,12 +63,18 @@ const overlayMessage = computed(() => {
   return null
 })
 
-const statusLabel = computed(() => {
-  if (!props.camera) {
-    return 'Aucune caméra sélectionnée'
-  }
+// Endpoints pour UNE SEULE caméra (placeholder CAM 1)
+const MJPEG_URL = '/api/stream/live/mjpeg'
+const SNAPSHOT_URL = '/api/stream/live/snapshot'
 
+const statusLabel = computed(() => {
+  if (!props.camera) return 'Aucune caméra sélectionnée'
   return props.camera.status === 'online' ? 'Connectée' : 'Hors-ligne'
+})
+
+const snapshotSrc = computed(() => {
+  if (!props.camera) return null
+  return `${SNAPSHOT_URL}?t=${tick.value}`
 })
 
 function handleSurfaceClick() {
@@ -277,7 +283,6 @@ onBeforeUnmount(() => {
         <span class="preview-panel__value">{{ statusLabel }}</span>
       </div>
     </div>
-
   </section>
 </template>
 
@@ -305,7 +310,6 @@ onBeforeUnmount(() => {
   margin: 0.35rem 0 0;
   color: var(--text-muted);
 }
-
 
 .preview-panel__status {
   display: inline-flex;
