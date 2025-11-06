@@ -1,27 +1,57 @@
 import type { ActionInputType } from './actions'
 
-export type StreamDeckSourceType = 'preset' | 'action'
+export type StreamDeckDisplayMode = 'text' | 'icon'
+export type StreamDeckActionTargetType = 'none' | 'action' | 'preset'
 
-export interface StreamDeckItem {
+export interface StreamDeckButtonDisplay {
+  mode: StreamDeckDisplayMode
+  text?: string
+  iconDataUrl?: string
+}
+
+export interface StreamDeckActionBinding {
+  trigger: 'press' | 'release'
+  targetType: StreamDeckActionTargetType
+  targetId: string | null
+}
+
+export interface StreamDeckButton {
   instanceId: string
-  sourceType: StreamDeckSourceType
-  sourceId: string
+  pageId: string
+  position: number
   inputType: ActionInputType
-  customLabel?: string
+  display: StreamDeckButtonDisplay
+  pressBinding: StreamDeckActionBinding
+  releaseBinding: StreamDeckActionBinding
   accentColor?: string
 }
 
+export interface StreamDeckPage {
+  id: string
+  index: number
+  name: string
+  buttons: StreamDeckButton[]
+}
+
 export interface StreamDeckLayout {
-  rows: number
-  columns: number
-  items: StreamDeckItem[]
+  id: string
+  name: string
+  pages: StreamDeckPage[]
 }
 
 export interface StreamDeckEventPayload {
-  instanceId: string
-  sourceType: StreamDeckSourceType
-  sourceId: string
-  inputType: ActionInputType
-  value?: number
+  buttonId: string
+  pageId: string
+  trigger: 'press' | 'release'
+  targetType: StreamDeckActionTargetType
+  targetId: string | null
   timestamp: string
+}
+
+export type StreamDeckButtonUpdate = Partial<
+  Omit<StreamDeckButton, 'instanceId' | 'position' | 'pageId' | 'pressBinding' | 'releaseBinding' | 'display'>
+> & {
+  display?: Partial<StreamDeckButtonDisplay>
+  pressBinding?: Partial<StreamDeckActionBinding>
+  releaseBinding?: Partial<StreamDeckActionBinding>
 }
