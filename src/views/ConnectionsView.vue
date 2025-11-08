@@ -690,6 +690,19 @@ const statusClass: Record<ConnectionStatus, string> = {
           rappelle à l’opérateur ce qui est prêt avant le démarrage du direct.
         </p>
       </div>
+
+      <section class="connections-view__placeholders">
+        <h4>Caméras placeholder</h4>
+        <p>Ces entrées permettent de documenter l'implantation physique en attendant une vraie découverte automatique.</p>
+        <ul>
+          <!-- Cette liste matérialise la vision métier des emplacements sans créer de vraies connexions. -->
+          <li v-for="camera in placeholderCatalog" :key="camera.id" :class="{ 'connections-view__placeholders-item--active': camera.isActive }">
+            <strong>{{ camera.label }}</strong>
+            <span>{{ camera.location }} • {{ camera.model }}</span>
+            <small>{{ camera.note }}</small>
+          </li>
+        </ul>
+      </section>
     </section>
   </div>
 </template>
@@ -839,6 +852,7 @@ const statusClass: Record<ConnectionStatus, string> = {
 
 .connections-view__preview h3 {
   margin: 0;
+  color: rgba(148, 163, 184, 0.8);
 }
 
 .connections-view__preview-subtitle {
@@ -990,7 +1004,7 @@ const statusClass: Record<ConnectionStatus, string> = {
   resize: vertical;
 }
 
-.connections-view__checkbox {
+.connections-view__form-actions {
   display: flex;
   align-items: center;
   gap: 0.5rem;
