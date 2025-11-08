@@ -1,21 +1,21 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch, watchEffect } from 'vue'
 import { useControlStore } from '../composables/useControlStore'
 import type { ConnectionStatus, ControllerConnection } from '../types/connections'
 
 // Le store centralise l'état partagé (connexions, presets, surface de contrôle, etc.).
 const store = useControlStore()
 
-const connections = computed(() => store.connections.value)
+const connections = store.connections
 
-// Cette ref garde l'identifiant de la connexion que l'on édite dans le panneau droit.
+// Le panneau droit doit savoir quelle caméra réelle est sélectionnée pour l’édition.
 const selectedId = ref<string | null>(connections.value[0]?.id ?? null)
 const isCreationOpen = ref(false)
 const sidebarTab = ref<'connections' | 'control'>('connections')
 
-// Le catalogue ci-dessous reconstitue les emplacements physiques de la salle.
-// Une seule caméra est réellement connectée, les 9 autres servent de repères métiers.
-const placeholderCameraCatalog = [
+// La salle compte dix emplacements physiques. On garde leur description pour
+// afficher un placeholder lorsqu’aucune caméra n’est branchée sur un slot.
+const PLACEHOLDER_CATALOG = [
   {
     id: 'auditorium-wide',
     label: 'Vue générale auditorium',
@@ -79,11 +79,19 @@ const placeholderCameraCatalog = [
     model: 'CR-X300',
     note: 'Plan d’ambiance extérieur avant l’entrée.',
   },
-]
+  {
+    id: 'backstage',
+    label: 'Backstage',
+    location: 'Coulisses',
+    model: 'CR-N100',
+    note: 'Suivi de l’équipe technique hors plateau.',
+  },
+] as const
 
+const MAX_SLOT_COUNT = 10
 const itemsPerPageOptions = [4, 6, 10] as const
 const galleryControls = reactive<{ perPage: number; page: number }>({
-  perPage: itemsPerPageOptions[0] ?? 4,
+  perPage: itemsPerPageOptions[1] ?? itemsPerPageOptions[0],
   page: 1,
 })
 
@@ -98,6 +106,7 @@ type GalleryConnectionSlot = {
   address: string
   status: ConnectionStatus
   note: string
+  location: string | null
   connection: ControllerConnection
 }
 
@@ -113,29 +122,38 @@ type GalleryPlaceholderSlot = {
 
 type GallerySlot = GalleryConnectionSlot | GalleryPlaceholderSlot
 
+const placeholderSlots: GalleryPlaceholderSlot[] = PLACEHOLDER_CATALOG.map((camera) => ({
+  type: 'placeholder',
+  id: `placeholder-${camera.id}`,
+  label: camera.label,
+  model: camera.model,
+  address: `Emplacement : ${camera.location}`,
+  note: camera.note,
+  location: camera.location,
+}))
+
+// On superpose les connexions réelles sur les dix slots physiques, et on garde
+// les éventuelles connexions supplémentaires en fin de liste pour la pagination.
 const gallerySlots = computed<GallerySlot[]>(() => {
-  const connectionSlots: GalleryConnectionSlot[] = connections.value.map((connection) => ({
-    type: 'connection',
-    id: connection.id,
-    label: connection.label,
-    model: connection.cameraModel,
-    address: `${connection.address}:${connection.httpPort}`,
-    status: connection.status,
-    note: connection.notes ?? 'Flux en direct disponible.',
-    connection,
-  }))
+  const connectionSlots: GalleryConnectionSlot[] = connections.value.map((connection, index) => {
+    const placeholder = placeholderSlots[index]
+    return {
+      type: 'connection',
+      id: connection.id,
+      label: connection.label,
+      model: connection.cameraModel,
+      address: `${connection.address}:${connection.httpPort}`,
+      status: connection.status,
+      note: connection.notes ?? placeholder?.note ?? 'Flux en direct disponible.',
+      location: placeholder?.location ?? null,
+      connection,
+    }
+  })
 
-  const placeholders: GalleryPlaceholderSlot[] = placeholderCameraCatalog.map((camera) => ({
-    type: 'placeholder',
-    id: `placeholder-${camera.id}`,
-    label: camera.label,
-    model: camera.model,
-    address: 'Adresse à définir',
-    note: camera.note,
-    location: `${camera.location}`,
-  }))
+  const overlay = placeholderSlots.map((placeholder, index) => connectionSlots[index] ?? placeholder)
+  const overflowConnections = connectionSlots.slice(overlay.length)
 
-  return [...connectionSlots, ...placeholders].slice(0, 10)
+  return [...overlay.slice(0, MAX_SLOT_COUNT), ...overflowConnections]
 })
 
 const totalPages = computed(() => Math.max(1, Math.ceil(gallerySlots.value.length / galleryControls.perPage)))
@@ -143,6 +161,15 @@ const totalPages = computed(() => Math.max(1, Math.ceil(gallerySlots.value.lengt
 const paginatedSlots = computed(() => {
   const start = (galleryControls.page - 1) * galleryControls.perPage
   return gallerySlots.value.slice(start, start + galleryControls.perPage)
+})
+
+watchEffect(() => {
+  // On garde la pagination cohérente si le nombre d’éléments ou le formatage change.
+  if (galleryControls.page > totalPages.value) {
+    galleryControls.page = totalPages.value
+  } else if (galleryControls.page < 1) {
+    galleryControls.page = 1
+  }
 })
 
 watch(
@@ -172,6 +199,7 @@ watch(
       return
     }
     if (!selectedId.value || !list.some((connection) => connection.id === selectedId.value)) {
+      // On force un point de départ cohérent si l’ancienne sélection a disparu.
       const first = list[0]
       if (first) {
         selectedId.value = first.id
@@ -187,11 +215,15 @@ const selectedConnection = computed(
   () => connections.value.find((connection) => connection.id === selectedId.value) ?? null,
 )
 
-watch(selectedConnection, (connection) => {
-  if (connection) {
-    activeSlotId.value = connection.id
-  }
-})
+watch(
+  () => selectedId.value,
+  (id) => {
+    if (!id) return
+    if (gallerySlots.value.some((slot) => slot.id === id)) {
+      activeSlotId.value = id
+    }
+  },
+)
 
 const previewTitle = computed(() => activeSlot.value?.label ?? 'Aucune caméra sélectionnée')
 const previewSubtitle = computed(() => {
@@ -199,6 +231,9 @@ const previewSubtitle = computed(() => {
     return 'Sélectionnez une caméra pour afficher un aperçu.'
   }
   if (activeSlot.value.type === 'connection') {
+    if (activeSlot.value.location) {
+      return `${activeSlot.value.location} • ${activeSlot.value.address}`
+    }
     return activeSlot.value.address
   }
   return `${activeSlot.value.location} • ${activeSlot.value.model}`
@@ -223,6 +258,16 @@ const previewNote = computed(() => {
     return ''
   }
   return activeSlot.value.note
+})
+
+// On affiche l’IHM réseau native de la caméra : l’URL reste simple pour laisser
+// l’opérateur se connecter avec les identifiants du fabricant si nécessaire.
+const previewStreamUrl = computed(() => {
+  if (activeSlot.value?.type !== 'connection') {
+    return null
+  }
+  const { address, httpPort } = activeSlot.value.connection
+  return `http://${address}:${httpPort}`
 })
 
 const creationForm = reactive({
@@ -268,18 +313,6 @@ function selectSlot(slot: GallerySlot) {
   if (slot.type === 'connection') {
     selectedId.value = slot.id
   }
-}
-
-function toggleCreationForm() {
-  isCreationOpen.value = !isCreationOpen.value
-  if (isCreationOpen.value) {
-    resetCreationForm()
-  }
-}
-
-function cancelCreation() {
-  resetCreationForm()
-  isCreationOpen.value = false
 }
 
 function toggleCreationForm() {
@@ -392,13 +425,19 @@ const statusClass: Record<ConnectionStatus, string> = {
           >
             <span class="connections-view__gallery-label">{{ slot.label }}</span>
             <small class="connections-view__gallery-meta">
-              {{ slot.type === 'connection' ? slot.address : slot.note }}
+              <template v-if="slot.type === 'connection'">
+                {{ slot.location ? `${slot.location} • ${slot.address}` : slot.address }}
+              </template>
+              <template v-else>
+                {{ slot.location }}
+              </template>
             </small>
+            <p v-if="slot.note" class="connections-view__gallery-note">{{ slot.note }}</p>
             <span
               class="status-pill"
               :class="slot.type === 'connection' ? statusClass[slot.status] : 'status-pill--idle'"
             >
-              {{ slot.type === 'connection' ? statusLabels[slot.status] : 'Placeholder' }}
+              {{ slot.type === 'connection' ? statusLabels[slot.status] : 'Libre' }}
             </span>
           </button>
         </li>
@@ -418,11 +457,27 @@ const statusClass: Record<ConnectionStatus, string> = {
         </header>
         <p class="connections-view__preview-subtitle">{{ previewSubtitle }}</p>
         <div class="connections-view__preview-screen">
-          <div class="connections-view__preview-overlay">
+          <iframe
+            v-if="previewStreamUrl"
+            :src="previewStreamUrl"
+            title="Flux caméra"
+            class="connections-view__preview-frame"
+            allow="autoplay"
+          ></iframe>
+          <div v-else class="connections-view__preview-placeholder">Signal en attente</div>
+          <div
+            class="connections-view__preview-overlay"
+            :class="{
+              'connections-view__preview-overlay--active':
+                activeSlot?.type === 'connection' && activeSlot.connection.status === 'connected',
+            }"
+          >
             {{
-              activeSlot?.type === 'connection' && activeSlot.connection.status === 'connected'
-                ? 'Flux en direct'
-                : 'Signal en attente'
+              activeSlot?.type === 'connection'
+                ? activeSlot.connection.status === 'connected'
+                  ? 'Flux en direct'
+                  : 'Interface caméra'
+                : 'Emplacement disponible'
             }}
           </div>
         </div>
@@ -721,7 +776,7 @@ const statusClass: Record<ConnectionStatus, string> = {
   padding: 0.9rem 1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.55rem;
   cursor: pointer;
   transition: border-color 0.2s ease, transform 0.2s ease, background 0.2s ease;
 }
@@ -743,6 +798,12 @@ const statusClass: Record<ConnectionStatus, string> = {
 
 .connections-view__gallery-meta {
   color: rgba(148, 163, 184, 0.8);
+}
+
+.connections-view__gallery-note {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(148, 163, 184, 0.75);
 }
 
 .connections-view__pagination {
@@ -791,6 +852,7 @@ const statusClass: Record<ConnectionStatus, string> = {
 
 .connections-view__preview h3 {
   margin: 0;
+  color: rgba(148, 163, 184, 0.8);
 }
 
 .connections-view__preview-subtitle {
@@ -805,20 +867,47 @@ const statusClass: Record<ConnectionStatus, string> = {
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(14, 165, 233, 0.25));
   min-height: 220px;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
   overflow: hidden;
 }
 
+.connections-view__preview-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: rgba(15, 23, 42, 0.85);
+}
+
+.connections-view__preview-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(226, 232, 240, 0.85);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
 .connections-view__preview-overlay {
-  font-size: 0.95rem;
+  position: absolute;
+  inset: auto 50% 1rem;
+  transform: translateX(-50%);
+  font-size: 0.85rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: rgba(226, 232, 240, 0.9);
-  background: rgba(15, 23, 42, 0.65);
-  padding: 0.65rem 1.1rem;
+  background: rgba(15, 23, 42, 0.7);
+  padding: 0.55rem 1rem;
   border-radius: 999px;
   border: 1px solid rgba(226, 232, 240, 0.2);
+  pointer-events: none;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.connections-view__preview-overlay--active {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(34, 197, 94, 0.45);
 }
 
 .connections-view__preview-note {
@@ -1067,12 +1156,6 @@ const statusClass: Record<ConnectionStatus, string> = {
   background: rgba(248, 113, 113, 0.25);
 }
 
-.connections-view__body {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  gap: 1rem;
-}
-
 .connections-view__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -1100,54 +1183,6 @@ const statusClass: Record<ConnectionStatus, string> = {
   flex-direction: row !important;
   align-items: center;
   gap: 0.5rem;
-}
-
-.connections-view__preview {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 1.25rem;
-  border-radius: 1.25rem;
-  border: 1px solid rgba(59, 70, 88, 0.35);
-  background: rgba(12, 19, 33, 0.78);
-}
-
-.connections-view__preview header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.connections-view__preview h4 {
-  margin: 0;
-}
-
-.connections-view__preview-subtitle {
-  margin: 0;
-  color: rgba(148, 163, 184, 0.8);
-}
-
-.connections-view__preview-screen {
-  position: relative;
-  border-radius: 1rem;
-  border: 1px solid rgba(79, 70, 229, 0.25);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(14, 165, 233, 0.25));
-  min-height: 160px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
-.connections-view__preview-overlay {
-  font-size: 0.95rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(226, 232, 240, 0.9);
-  background: rgba(15, 23, 42, 0.65);
-  padding: 0.65rem 1.1rem;
-  border-radius: 999px;
-  border: 1px solid rgba(226, 232, 240, 0.2);
 }
 
 .connections-view__status {
