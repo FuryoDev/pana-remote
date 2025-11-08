@@ -3,16 +3,52 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useControlStore } from '../composables/useControlStore'
 import type { ConnectionStatus, ControllerConnection } from '../types/connections'
 
+// Le store Vue nous permet de partager l'état entre les vues et de conserver les connexions.
 const store = useControlStore()
 
 const connections = computed(() => store.connections.value)
 const selectedId = ref<string | null>(connections.value[0]?.id ?? null)
+const isCreationOpen = ref(false)
+
+// Liste d'exemples servant de documentation métier en attendant une découverte réseau.
+const placeholderCameraCatalog = [
+  {
+    id: 'studio-main',
+    label: 'Studio principal',
+    location: 'Plateau A',
+    model: 'CR-N500',
+    note: 'Plan large utilisé au démarrage des cultes.',
+  },
+  {
+    id: 'studio-tight',
+    label: 'Caméra rapprochée',
+    location: 'Plateau A',
+    model: 'CR-N300',
+    note: 'Focus orateur pour les annonces.',
+  },
+  {
+    id: 'audience-left',
+    label: 'Audience gauche',
+    location: 'Salle',
+    model: 'CR-N100',
+    note: 'Capture des réactions côté gauche.',
+  },
+  {
+    id: 'audience-right',
+    label: 'Audience droite',
+    location: 'Salle',
+    model: 'CR-N100',
+    note: 'Capture des réactions côté droit.',
+  },
+]
 
 watch(
   connections,
   (list) => {
     if (!list.length) {
       selectedId.value = null
+      // Aucune caméra configurée : on ouvre le formulaire pour guider l'utilisateur vers la création.
+      isCreationOpen.value = true
       return
     }
     if (!selectedId.value || !list.some((connection) => connection.id === selectedId.value)) {
@@ -25,7 +61,28 @@ watch(
   { immediate: true },
 )
 
-const selectedConnection = computed(() => connections.value.find((connection) => connection.id === selectedId.value) ?? null)
+const selectedConnection = computed(
+  () => connections.value.find((connection) => connection.id === selectedId.value) ?? null,
+)
+
+const placeholderCatalog = computed(() =>
+  placeholderCameraCatalog.map((camera) => ({
+    ...camera,
+    isActive: selectedConnection.value
+      ? camera.label.toLowerCase() === selectedConnection.value.label.toLowerCase()
+      : false,
+  })),
+)
+
+const previewTitle = computed(() => selectedConnection.value?.label ?? 'Aucune caméra sélectionnée')
+const previewSubtitle = computed(() =>
+  selectedConnection.value
+    ? `${selectedConnection.value.address}:${selectedConnection.value.httpPort}`
+    : 'Sélectionnez une connexion pour afficher un aperçu.',
+)
+const previewStatus = computed(() =>
+  selectedConnection.value ? statusLabels[selectedConnection.value.status] : 'Hors ligne',
+)
 
 const creationForm = reactive({
   label: '',
@@ -61,10 +118,23 @@ function handleCreateConnection() {
   })
   resetCreationForm()
   selectedId.value = connection.id
+  isCreationOpen.value = false
 }
 
 function selectConnection(id: string) {
   selectedId.value = id
+}
+
+function toggleCreationForm() {
+  isCreationOpen.value = !isCreationOpen.value
+  if (isCreationOpen.value) {
+    resetCreationForm()
+  }
+}
+
+function cancelCreation() {
+  resetCreationForm()
+  isCreationOpen.value = false
 }
 
 function updateConnection(
@@ -116,11 +186,16 @@ const statusClass: Record<ConnectionStatus, string> = {
   <div class="connections-view">
     <section class="connections-view__list">
       <header>
-        <div>
+        <div class="connections-view__header-text">
           <h2>Connexions caméra</h2>
           <p>Ajoutez vos caméras Canon PTZ et vérifiez leur statut de connexion.</p>
         </div>
-        <form class="connections-view__form" @submit.prevent="handleCreateConnection">
+        <div class="connections-view__header-actions">
+          <button type="button" @click="toggleCreationForm">
+            {{ isCreationOpen ? 'Fermer le formulaire' : 'Ajouter une connexion' }}
+          </button>
+        </div>
+        <form v-if="isCreationOpen" class="connections-view__form" @submit.prevent="handleCreateConnection">
           <label>
             <span>Label</span>
             <input v-model="creationForm.label" type="text" required placeholder="Caméra 1" />
@@ -147,7 +222,10 @@ const statusClass: Record<ConnectionStatus, string> = {
             <span>Notes</span>
             <textarea v-model="creationForm.notes" rows="2" placeholder="Ajouter des notes"></textarea>
           </label>
-          <button type="submit">Ajouter</button>
+          <div class="connections-view__form-actions">
+            <button type="submit" class="primary">Créer la connexion</button>
+            <button type="button" class="ghost" @click="cancelCreation">Annuler</button>
+          </div>
         </form>
       </header>
 
@@ -194,56 +272,72 @@ const statusClass: Record<ConnectionStatus, string> = {
         <button type="button" class="connections-view__danger" @click="removeSelected">Supprimer</button>
       </header>
 
-      <div class="connections-view__grid">
-        <label>
-          <span>Label</span>
-          <input
-            :value="selectedConnection.label"
-            type="text"
-            @change="updateConnection('label', ($event.target as HTMLInputElement).value)"
-          />
-        </label>
-        <label>
-          <span>Adresse IP</span>
-          <input
-            :value="selectedConnection.address"
-            type="text"
-            @change="updateConnection('address', ($event.target as HTMLInputElement).value)"
-          />
-        </label>
-        <label>
-          <span>Port HTTP</span>
-          <input
-            :value="selectedConnection.httpPort"
-            type="number"
-            min="1"
-            max="65535"
-            @change="updateConnection('httpPort', Number(($event.target as HTMLInputElement).value))"
-          />
-        </label>
-        <label>
-          <span>Modèle</span>
-          <select :value="selectedConnection.cameraModel" @change="updateConnection('cameraModel', ($event.target as HTMLSelectElement).value)">
-            <option v-for="model in cameraModels" :key="model" :value="model">{{ model }}</option>
-          </select>
-        </label>
-        <label class="connections-view__toggle">
-          <input
-            :checked="selectedConnection.autoConnect"
-            type="checkbox"
-            @change="updateConnection('autoConnect', ($event.target as HTMLInputElement).checked)"
-          />
-          Connexion automatique au démarrage
-        </label>
-        <label class="connections-view__textarea">
-          <span>Notes</span>
-          <textarea
-            :value="selectedConnection.notes ?? ''"
-            rows="3"
-            placeholder="Information complémentaire"
-            @change="updateConnection('notes', ($event.target as HTMLTextAreaElement).value)"
-          ></textarea>
-        </label>
+      <div class="connections-view__body">
+        <div class="connections-view__grid">
+          <label>
+            <span>Label</span>
+            <input
+              :value="selectedConnection.label"
+              type="text"
+              @change="updateConnection('label', ($event.target as HTMLInputElement).value)"
+            />
+          </label>
+          <label>
+            <span>Adresse IP</span>
+            <input
+              :value="selectedConnection.address"
+              type="text"
+              @change="updateConnection('address', ($event.target as HTMLInputElement).value)"
+            />
+          </label>
+          <label>
+            <span>Port HTTP</span>
+            <input
+              :value="selectedConnection.httpPort"
+              type="number"
+              min="1"
+              max="65535"
+              @change="updateConnection('httpPort', Number(($event.target as HTMLInputElement).value))"
+            />
+          </label>
+          <label>
+            <span>Modèle</span>
+            <select :value="selectedConnection.cameraModel" @change="updateConnection('cameraModel', ($event.target as HTMLSelectElement).value)">
+              <option v-for="model in cameraModels" :key="model" :value="model">{{ model }}</option>
+            </select>
+          </label>
+          <label class="connections-view__toggle">
+            <input
+              :checked="selectedConnection.autoConnect"
+              type="checkbox"
+              @change="updateConnection('autoConnect', ($event.target as HTMLInputElement).checked)"
+            />
+            Connexion automatique au démarrage
+          </label>
+          <label class="connections-view__textarea">
+            <span>Notes</span>
+            <textarea
+              :value="selectedConnection.notes ?? ''"
+              rows="3"
+              placeholder="Information complémentaire"
+              @change="updateConnection('notes', ($event.target as HTMLTextAreaElement).value)"
+            ></textarea>
+          </label>
+        </div>
+
+        <aside class="connections-view__preview">
+          <!-- Aperçu visuel simulé afin d'offrir un feedback immédiat pendant la configuration. -->
+          <header>
+            <h4>{{ previewTitle }}</h4>
+            <span class="status-pill" :class="statusClass[selectedConnection.status]">{{ previewStatus }}</span>
+          </header>
+          <p class="connections-view__preview-subtitle">{{ previewSubtitle }}</p>
+          <div class="connections-view__preview-screen">
+            <div class="connections-view__preview-overlay">
+              {{ selectedConnection.status === 'connected' ? 'Flux en direct simulé' : 'Aucun signal' }}
+            </div>
+          </div>
+        </aside>
       </div>
 
       <div class="connections-view__status">
@@ -262,6 +356,19 @@ const statusClass: Record<ConnectionStatus, string> = {
           <button type="button" @click="setStatus('disconnected')">Forcer déconnexion</button>
         </div>
       </div>
+
+      <section class="connections-view__placeholders">
+        <h4>Caméras placeholder</h4>
+        <p>Ces entrées permettent de documenter l'implantation physique en attendant une vraie découverte automatique.</p>
+        <ul>
+          <!-- Cette liste matérialise la vision métier des emplacements sans créer de vraies connexions. -->
+          <li v-for="camera in placeholderCatalog" :key="camera.id" :class="{ 'connections-view__placeholders-item--active': camera.isActive }">
+            <strong>{{ camera.label }}</strong>
+            <span>{{ camera.location }} • {{ camera.model }}</span>
+            <small>{{ camera.note }}</small>
+          </li>
+        </ul>
+      </section>
     </section>
   </div>
 </template>
@@ -288,6 +395,32 @@ const statusClass: Record<ConnectionStatus, string> = {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.connections-view__header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.connections-view__header-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.connections-view__header-actions button {
+  border-radius: 0.9rem;
+  border: 1px solid rgba(129, 140, 248, 0.55);
+  background: rgba(79, 70, 229, 0.22);
+  color: #eef2ff;
+  padding: 0.55rem 1rem;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.connections-view__header-actions button:hover {
+  transform: translateY(-1px);
+  background: rgba(99, 102, 241, 0.32);
 }
 
 .connections-view__list h2 {
@@ -326,28 +459,47 @@ const statusClass: Record<ConnectionStatus, string> = {
   resize: vertical;
 }
 
+.connections-view__form-actions {
+  display: flex;
+  gap: 0.75rem;
+  grid-column: 1 / -1;
+}
+
+.connections-view__form-actions .primary,
+.connections-view__form-actions .ghost {
+  border-radius: 0.9rem;
+  padding: 0.55rem 1.1rem;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.connections-view__form-actions .primary {
+  border: 1px solid rgba(56, 189, 248, 0.65);
+  background: rgba(56, 189, 248, 0.15);
+  color: #cffafe;
+}
+
+.connections-view__form-actions .primary:hover {
+  transform: translateY(-1px);
+  background: rgba(56, 189, 248, 0.25);
+}
+
+.connections-view__form-actions .ghost {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: transparent;
+  color: #cbd5f5;
+}
+
+.connections-view__form-actions .ghost:hover {
+  transform: translateY(-1px);
+  background: rgba(148, 163, 184, 0.15);
+}
+
 .connections-view__checkbox {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.9rem;
-}
-
-.connections-view__form button {
-  grid-column: 1 / -1;
-  justify-self: flex-start;
-  border-radius: 0.9rem;
-  border: 1px solid rgba(129, 140, 248, 0.55);
-  background: rgba(79, 70, 229, 0.22);
-  color: #eef2ff;
-  padding: 0.6rem 1.2rem;
-  cursor: pointer;
-  transition: transform 0.2s ease, background 0.2s ease;
-}
-
-.connections-view__form button:hover {
-  transform: translateY(-1px);
-  background: rgba(99, 102, 241, 0.32);
 }
 
 .connections-view__items {
@@ -461,10 +613,20 @@ const statusClass: Record<ConnectionStatus, string> = {
   background: rgba(248, 113, 113, 0.3);
 }
 
+.connections-view__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 1rem;
+}
+
 .connections-view__grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 0.85rem;
+  padding: 1.25rem;
+  border-radius: 1.25rem;
+  border: 1px solid rgba(59, 70, 88, 0.35);
+  background: rgba(15, 23, 42, 0.55);
 }
 
 .connections-view__grid label {
@@ -487,12 +649,63 @@ const statusClass: Record<ConnectionStatus, string> = {
 .connections-view__toggle {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.9rem;
+  gap: 0.75rem;
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  padding: 0.75rem;
+  border-radius: 0.9rem;
+  background: rgba(15, 23, 42, 0.35);
 }
 
 .connections-view__textarea {
   grid-column: 1 / -1;
+}
+
+.connections-view__preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.25rem;
+  border-radius: 1.25rem;
+  border: 1px solid rgba(59, 70, 88, 0.35);
+  background: rgba(12, 19, 33, 0.78);
+}
+
+.connections-view__preview header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.connections-view__preview h4 {
+  margin: 0;
+}
+
+.connections-view__preview-subtitle {
+  margin: 0;
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.connections-view__preview-screen {
+  position: relative;
+  border-radius: 1rem;
+  border: 1px solid rgba(79, 70, 229, 0.25);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(14, 165, 233, 0.25));
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.connections-view__preview-overlay {
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(226, 232, 240, 0.9);
+  background: rgba(15, 23, 42, 0.65);
+  padding: 0.65rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(226, 232, 240, 0.2);
 }
 
 .connections-view__status {
@@ -528,6 +741,64 @@ const statusClass: Record<ConnectionStatus, string> = {
 .connections-view__status-actions button:hover {
   border-color: rgba(129, 140, 248, 0.45);
   background: rgba(79, 70, 229, 0.22);
+}
+
+.connections-view__placeholders {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+  padding: 1.25rem;
+  border-radius: 1.25rem;
+  border: 1px solid rgba(59, 70, 88, 0.35);
+  background: rgba(12, 20, 33, 0.65);
+}
+
+.connections-view__placeholders h4 {
+  margin: 0;
+}
+
+.connections-view__placeholders p {
+  margin: 0;
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.connections-view__placeholders ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.connections-view__placeholders li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.9rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(59, 70, 88, 0.3);
+  background: rgba(10, 17, 30, 0.55);
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.connections-view__placeholders li strong {
+  font-size: 1rem;
+}
+
+.connections-view__placeholders li span {
+  font-size: 0.9rem;
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.connections-view__placeholders li small {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.7);
+}
+
+.connections-view__placeholders-item--active {
+  border-color: rgba(56, 189, 248, 0.65);
+  transform: translateY(-2px);
 }
 
 .status-pill {
@@ -568,6 +839,14 @@ const statusClass: Record<ConnectionStatus, string> = {
 
 @media (max-width: 1200px) {
   .connections-view {
+    grid-template-columns: 1fr;
+  }
+
+  .connections-view__details {
+    order: -1;
+  }
+
+  .connections-view__body {
     grid-template-columns: 1fr;
   }
 
