@@ -2,92 +2,186 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
 const projectRoot = path.resolve(new URL('.', import.meta.url).pathname, '..')
-
-const legacyFolders = [
-  path.resolve(projectRoot, 'old projects/pana-other/10.41.39.153/js/pc'),
-  path.resolve(projectRoot, 'old projects/pana-other/10.41.39.153/js/include'),
-]
-
 const outputFile = path.resolve(projectRoot, 'src/data/legacy-actions.generated.ts')
 
-const functionRegex = /function\s+([a-zA-Z0-9_]+)\s*\(/g
-const assignmentRegex = /(const|let|var)\s+([a-zA-Z0-9_]+)\s*=\s*function\s*\(/g
-
-function toTitleCase(value) {
-  return value
-    .replace(/[_-]+/g, ' ')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^./, (char) => char.toUpperCase())
-}
-
-async function readFunctions(filePath) {
-  const content = await fs.readFile(filePath, 'utf8')
-  const functions = new Set()
-
-  for (const regex of [functionRegex, assignmentRegex]) {
-    regex.lastIndex = 0
-    let match
-    while ((match = regex.exec(content)) !== null) {
-      const name = match[1] ?? match[2]
-      if (!name) continue
-      if (name === 'constructor') continue
-      functions.add(name)
-    }
-  }
-
-  return Array.from(functions)
-}
-
-async function collectActions() {
-  const actions = []
-  for (const folder of legacyFolders) {
-    const entries = await fs.readdir(folder, { withFileTypes: true })
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith('.js')) {
-        continue
-      }
-      const filePath = path.join(folder, entry.name)
-      const relativePath = path.relative(projectRoot, filePath).replace(/\\/g, '/')
-      const baseName = entry.name.replace(/\.js$/, '')
-      const functions = await readFunctions(filePath)
-      if (functions.length === 0) {
-        actions.push({
-          id: `${relativePath}::default`,
-          name: toTitleCase(baseName),
-          filePath: relativePath,
-          group: folder.includes('/pc') ? 'pc' : 'include',
-        })
-        continue
-      }
-
-      for (const fn of functions) {
-        actions.push({
-          id: `${relativePath}::${fn}`,
-          name: toTitleCase(fn),
-          filePath: relativePath,
-          group: folder.includes('/pc') ? 'pc' : 'include',
-        })
-      }
-    }
-  }
-
-  const sorted = actions.sort((a, b) => a.name.localeCompare(b.name))
-  return sorted
-}
+const curatedActions = [
+  {
+    id: 'camera.motion.pan-left',
+    name: 'Panoramique gauche',
+    filePath: 'virtual/camera-controls/pan',
+    description: "Déplace l'objectif vers la gauche à vitesse nominale.",
+    group: 'Mouvement panoramique',
+    supportedInputs: ['button', 'ramp'],
+  },
+  {
+    id: 'camera.motion.pan-right',
+    name: 'Panoramique droite',
+    filePath: 'virtual/camera-controls/pan',
+    description: "Déplace l'objectif vers la droite à vitesse nominale.",
+    group: 'Mouvement panoramique',
+    supportedInputs: ['button', 'ramp'],
+  },
+  {
+    id: 'camera.motion.pan-left-slow',
+    name: 'Panoramique gauche (lent)',
+    filePath: 'virtual/camera-controls/pan',
+    description: "Effectue un panoramique précis vers la gauche pour les plans sensibles.",
+    group: 'Mouvement panoramique',
+    supportedInputs: ['button', 'ramp'],
+  },
+  {
+    id: 'camera.motion.pan-right-slow',
+    name: 'Panoramique droite (lent)',
+    filePath: 'virtual/camera-controls/pan',
+    description: "Effectue un panoramique précis vers la droite pour les plans sensibles.",
+    group: 'Mouvement panoramique',
+    supportedInputs: ['button', 'ramp'],
+  },
+  {
+    id: 'camera.motion.tilt-up',
+    name: 'Inclinaison haut',
+    filePath: 'virtual/camera-controls/tilt',
+    description: "Fait monter l'objectif pour suivre un sujet.",
+    group: 'Mouvement inclinaison',
+    supportedInputs: ['button', 'ramp'],
+  },
+  {
+    id: 'camera.motion.tilt-down',
+    name: 'Inclinaison bas',
+    filePath: 'virtual/camera-controls/tilt',
+    description: "Fait descendre l'objectif pour recentrer le cadrage.",
+    group: 'Mouvement inclinaison',
+    supportedInputs: ['button', 'ramp'],
+  },
+  {
+    id: 'camera.motion.tilt-up-slow',
+    name: 'Inclinaison haut (lente)',
+    filePath: 'virtual/camera-controls/tilt',
+    description: "Effectue une inclinaison fine vers le haut.",
+    group: 'Mouvement inclinaison',
+    supportedInputs: ['button', 'ramp'],
+  },
+  {
+    id: 'camera.motion.tilt-down-slow',
+    name: 'Inclinaison bas (lente)',
+    filePath: 'virtual/camera-controls/tilt',
+    description: "Effectue une inclinaison fine vers le bas.",
+    group: 'Mouvement inclinaison',
+    supportedInputs: ['button', 'ramp'],
+  },
+  {
+    id: 'camera.motion.zoom-in',
+    name: 'Zoom avant',
+    filePath: 'virtual/camera-controls/zoom',
+    description: "Rapproche l'image du sujet.",
+    group: 'Zoom',
+    supportedInputs: ['button', 'ramp'],
+  },
+  {
+    id: 'camera.motion.zoom-out',
+    name: 'Zoom arrière',
+    filePath: 'virtual/camera-controls/zoom',
+    description: "Élargit le champ pour intégrer plus d'environnement.",
+    group: 'Zoom',
+    supportedInputs: ['button', 'ramp'],
+  },
+  {
+    id: 'camera.motion.zoom-in-slow',
+    name: 'Zoom avant (lent)',
+    filePath: 'virtual/camera-controls/zoom',
+    description: "Zoom progressif pour une transition douce.",
+    group: 'Zoom',
+    supportedInputs: ['button', 'ramp'],
+  },
+  {
+    id: 'camera.motion.zoom-out-slow',
+    name: 'Zoom arrière (lent)',
+    filePath: 'virtual/camera-controls/zoom',
+    description: "Zoom arrière contrôlé pour éviter les à-coups.",
+    group: 'Zoom',
+    supportedInputs: ['button', 'ramp'],
+  },
+  {
+    id: 'camera.motion.focus-near',
+    name: 'Mise au point proche',
+    filePath: 'virtual/camera-controls/focus',
+    description: "Fait converger la mise au point vers un sujet proche.",
+    group: 'Focus',
+    supportedInputs: ['button', 'ramp'],
+  },
+  {
+    id: 'camera.motion.focus-far',
+    name: 'Mise au point lointaine',
+    filePath: 'virtual/camera-controls/focus',
+    description: "Fait diverger la mise au point vers un sujet éloigné.",
+    group: 'Focus',
+    supportedInputs: ['button', 'ramp'],
+  },
+  {
+    id: 'camera.motion.focus-auto',
+    name: 'Basculer autofocus',
+    filePath: 'virtual/camera-controls/focus',
+    description: "Active ou désactive l’autofocus de la caméra.",
+    group: 'Focus',
+    supportedInputs: ['button'],
+  },
+  {
+    id: 'camera.motion.home-set',
+    name: 'Enregistrer position home',
+    filePath: 'virtual/camera-controls/preset',
+    description: "Capture la position actuelle comme référence home.",
+    group: 'Positionnement',
+    supportedInputs: ['button'],
+  },
+  {
+    id: 'camera.motion.home-recall',
+    name: 'Retour position home',
+    filePath: 'virtual/camera-controls/preset',
+    description: "Replace l’objectif sur la position home enregistrée.",
+    group: 'Positionnement',
+    supportedInputs: ['button'],
+  },
+  {
+    id: 'camera.motion.move-preset-a',
+    name: 'Aller au preset A',
+    filePath: 'virtual/camera-controls/preset',
+    description: "Déplace l’objectif vers le preset A (plan large).",
+    group: 'Positionnement',
+    supportedInputs: ['button'],
+  },
+  {
+    id: 'camera.motion.move-preset-b',
+    name: 'Aller au preset B',
+    filePath: 'virtual/camera-controls/preset',
+    description: "Déplace l’objectif vers le preset B (plan rapproché).",
+    group: 'Positionnement',
+    supportedInputs: ['button'],
+  },
+  {
+    id: 'camera.motion.move-preset-c',
+    name: 'Aller au preset C',
+    filePath: 'virtual/camera-controls/preset',
+    description: "Déplace l’objectif vers le preset C (plan speaker).",
+    group: 'Positionnement',
+    supportedInputs: ['button'],
+  },
+  {
+    id: 'camera.motion.move-preset-d',
+    name: 'Aller au preset D',
+    filePath: 'virtual/camera-controls/preset',
+    description: "Déplace l’objectif vers le preset D (plan audience).",
+    group: 'Positionnement',
+    supportedInputs: ['button'],
+  },
+]
 
 function createFileContent(actions) {
-  const header = `// AUTO-GENERATED FILE. Run \`node scripts/generate-actions.mjs\` to update.\n`
+  const header = "// AUTO-GENERATED FILE. Run `node scripts/generate-actions.mjs` to update.\n"
   const importLine = "import type { LegacyActionDefinition } from '../types/actions'\n\n"
   const entries = actions
-    .map((action) => ({
-      ...action,
-      supportedInputs: ['button'],
-    }))
     .map(
       (action) =>
-        `  {\n    id: ${JSON.stringify(action.id)},\n    name: ${JSON.stringify(action.name)},\n    filePath: ${JSON.stringify(action.filePath)},\n    group: ${JSON.stringify(action.group)},\n    supportedInputs: ['button'],\n  }`,
+        `  {\n    id: ${JSON.stringify(action.id)},\n    name: ${JSON.stringify(action.name)},\n    filePath: ${JSON.stringify(action.filePath)},\n    description: ${JSON.stringify(action.description)},\n    group: ${JSON.stringify(action.group)},\n    supportedInputs: [${action.supportedInputs.map((input) => `'${input}'`).join(', ')}],\n  }`,
     )
     .join(',\n')
 
@@ -95,11 +189,10 @@ function createFileContent(actions) {
 }
 
 async function main() {
-  const actions = await collectActions()
   await fs.mkdir(path.dirname(outputFile), { recursive: true })
-  const content = createFileContent(actions)
+  const content = createFileContent(curatedActions)
   await fs.writeFile(outputFile, content)
-  console.log(`Generated ${actions.length} actions to ${path.relative(projectRoot, outputFile)}`)
+  console.log(`Generated ${curatedActions.length} actions to ${path.relative(projectRoot, outputFile)}`)
 }
 
 main().catch((error) => {
