@@ -15,7 +15,19 @@ import type { ConnectionStatus, ControllerConnection } from '../types/connection
 
 const DEFAULT_PRESETS: Preset[] = []
 const DEFAULT_PROFILES: Record<string, ActionProfile> = {}
-const DEFAULT_CONNECTIONS: ControllerConnection[] = []
+const DEFAULT_CONNECTIONS: ControllerConnection[] = [
+  {
+    id: 'connection-control-room',
+    label: 'Caméra principale plateau',
+    address: '10.41.39.153',
+    httpPort: 80,
+    cameraModel: 'CR-N500',
+    autoConnect: true,
+    status: 'connected',
+    lastUpdated: null,
+    notes: 'Flux principal du plateau cultuel.',
+  },
+]
 const DEFAULT_DECK_PAGES: StreamDeckPage[] = []
 
 const MAX_DECK_PAGES = 99

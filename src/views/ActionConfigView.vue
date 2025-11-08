@@ -3,18 +3,23 @@ import { computed, ref } from 'vue'
 import { useControlStore } from '../composables/useControlStore'
 import type { ActionInputType } from '../types/actions'
 
+// Le store centralise la configuration et évite de multiplier les sources de vérité.
 const store = useControlStore()
 
+// On expose les actions pré-configurées afin de les annoter dans cette vue.
 const actions = computed(() => store.configuredActions.value)
+// Champs contrôlés par l'UI pour filtrer dynamiquement la liste.
 const search = ref('')
 const groupFilter = ref<'all' | string>('all')
 
 const groups = computed(() => {
+  // On construit la liste des dossiers à partir des actions chargées pour guider la navigation.
   const set = new Set(actions.value.map((action) => action.definition.group ?? 'autre'))
   return ['all', ...Array.from(set)]
 })
 
 const filteredActions = computed(() => {
+  // Filtre textuel + par dossier pour aider l'opérateur à se concentrer sur une catégorie métier.
   const term = search.value.trim().toLowerCase()
   return actions.value.filter((action) => {
     if (groupFilter.value !== 'all' && action.definition.group !== groupFilter.value) {
@@ -71,6 +76,7 @@ function resetProfile(id: string) {
     </header>
 
     <section class="action-config__list">
+      <!-- Chaque carte représente un profil d'action hérité qu'on peut contextualiser pour l'opérateur. -->
       <article v-for="action in filteredActions" :key="action.definition.id" class="action-card">
         <header class="action-card__header">
           <div>
