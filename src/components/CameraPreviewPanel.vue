@@ -18,24 +18,7 @@ const emit = defineEmits<{ (e: 'surface-click'): void }>()
 const isSurfaceAlert = ref(false)
 const CAMERA_HOST = 'http://10.41.39.153'
 const SNAPSHOT_ENDPOINT = `${CAMERA_HOST}/cgi-bin/view.cgi`
-const FRAME_INTERVAL_MS = 1000 / 12
-
-interface FrameBuffer {
-  id: number
-  src: string
-  isActive: boolean
-}
-
-const frameBuffers = ref<FrameBuffer[]>([
-  { id: 0, src: '', isActive: false },
-  { id: 1, src: '', isActive: false },
-])
-const activeBuffer = ref<number | null>(null)
-const frameSequence = ref(0)
-const frameTimer = ref<ReturnType<typeof setTimeout> | null>(null)
-const isLoadingStream = ref(false)
-const streamError = ref<string | null>(null)
-const isStreamActive = ref(false)
+const LIVE_MIRROR_URL = `${CAMERA_HOST}/live/index.html`
 const isTestingControls = ref(false)
 const testMessage = ref<string | null>(null)
 const testLog = ref<string[]>([])
@@ -43,42 +26,29 @@ const testLog = ref<string[]>([])
 const isLiveCamera = computed(() => props.camera?.id === 'cam-01')
 const isCameraOnline = computed(() => props.camera?.status === 'online')
 const shouldStream = computed(() => isLiveCamera.value && isCameraOnline.value)
-const hasActiveFrame = computed(() =>
-  frameBuffers.value.some((buffer) => buffer.isActive && buffer.src.length > 0),
-)
 const overlayMessage = computed(() => {
   if (!isCameraOnline.value) {
     return 'Caméra hors ligne'
   }
 
   if (!shouldStream.value) {
-    return null
-  }
-
-  if (streamError.value) {
-    return streamError.value
-  }
-
-  if (isLoadingStream.value && !hasActiveFrame.value) {
-    return 'Connexion au flux…'
+    return 'Flux indisponible'
   }
 
   return null
 })
 
-// Endpoints pour UNE SEULE caméra (placeholder CAM 1)
-const MJPEG_URL = '/api/stream/live/mjpeg'
-const SNAPSHOT_URL = '/api/stream/live/snapshot'
-const tick = ref(Date.now())
+const mirrorSrc = computed(() => {
+  if (!shouldStream.value) {
+    return null
+  }
+
+  return `${LIVE_MIRROR_URL}?t=${Date.now()}`
+})
 
 const statusLabel = computed(() => {
   if (!props.camera) return 'Aucune caméra sélectionnée'
   return props.camera.status === 'online' ? 'Connectée' : 'Hors-ligne'
-})
-
-const snapshotSrc = computed(() => {
-  if (!props.camera) return null
-  return `${SNAPSHOT_URL}?t=${tick.value}`
 })
 
 function handleSurfaceClick() {
@@ -178,144 +148,20 @@ function triggerCamera(action: 'start' | 'stop') {
   image.src = url.toString()
 }
 
-function clearFrameTimer() {
-  if (frameTimer.value !== null) {
-    clearTimeout(frameTimer.value)
-    frameTimer.value = null
-  }
-}
-
-function resetBuffers() {
-  frameBuffers.value = frameBuffers.value.map((buffer) => ({
-    ...buffer,
-    src: '',
-    isActive: false,
-  }))
-  activeBuffer.value = null
-  frameSequence.value = 0
-}
-
-function buildSnapshotUrl(sequence: number) {
-  const url = new URL(SNAPSHOT_ENDPOINT)
-  url.searchParams.set('action', 'snapshot')
-  url.searchParams.set('resolution', '0')
-  url.searchParams.set('n', sequence.toString())
-  url.searchParams.set('_', Date.now().toString())
-  return url.toString()
-}
-
-function requestFrame(bufferId: number) {
-  const index = frameBuffers.value.findIndex((buffer) => buffer.id === bufferId)
-  if (index === -1) {
-    return
-  }
-
-  const currentBuffer = frameBuffers.value[index]
-  if (!currentBuffer) {
-    return
-  }
-
-  const nextSequence = frameSequence.value + 1
-  frameSequence.value = nextSequence
-
-  const nextBuffer: FrameBuffer = {
-    ...currentBuffer,
-    src: buildSnapshotUrl(nextSequence),
-  }
-
-  frameBuffers.value.splice(index, 1, nextBuffer)
-}
-
-function scheduleNextFrame(delay = FRAME_INTERVAL_MS) {
-  if (!isStreamActive.value) {
-    return
-  }
-
-  clearFrameTimer()
-  frameTimer.value = setTimeout(() => {
-    if (!isStreamActive.value) {
-      return
-    }
-
-    const nextBuffer =
-      frameBuffers.value.find((buffer) => buffer.id !== activeBuffer.value) ?? frameBuffers.value[0]
-
-    if (!nextBuffer) {
-      return
-    }
-
-    isLoadingStream.value = true
-    requestFrame(nextBuffer.id)
-  }, delay)
-}
-
-function handleFrameLoad(bufferId: number) {
-  if (!isStreamActive.value) {
-    return
-  }
-
-  streamError.value = null
-  isLoadingStream.value = false
-  activeBuffer.value = bufferId
-
-  frameBuffers.value = frameBuffers.value.map((buffer) => ({
-    ...buffer,
-    isActive: buffer.id === bufferId,
-  }))
-
-  scheduleNextFrame()
-}
-
-function handleFrameError() {
-  if (!isStreamActive.value) {
-    return
-  }
-
-  streamError.value = 'Flux vidéo indisponible'
-  isLoadingStream.value = false
-  scheduleNextFrame(1000)
-}
-
-function startStream() {
-  if (isStreamActive.value) {
-    return
-  }
-
-  isStreamActive.value = true
-  streamError.value = null
-  resetBuffers()
-  triggerCamera('start')
-  isLoadingStream.value = true
-  requestFrame(frameBuffers.value[0]?.id ?? 0)
-}
-
-function stopStream() {
-  if (!isStreamActive.value) {
-    return
-  }
-
-  isStreamActive.value = false
-  triggerCamera('stop')
-  clearFrameTimer()
-  resetBuffers()
-  isLoadingStream.value = false
-}
-
 watch(
   shouldStream,
   (value) => {
     if (value) {
-      startStream()
+      triggerCamera('start')
     } else {
-      stopStream()
-      streamError.value = null
+      triggerCamera('stop')
     }
   },
   { immediate: true },
 )
 
 onBeforeUnmount(() => {
-  stopStream()
+  triggerCamera('stop')
 })
 </script>
 
@@ -334,18 +180,16 @@ onBeforeUnmount(() => {
     <div class="preview-panel__surface" :class="{ 'is-alert': isSurfaceAlert }" @click="handleSurfaceClick">
       <div class="preview-panel__video" role="presentation">
         <template v-if="camera">
-          <div v-if="isLiveCamera" class="preview-panel__stream" :class="{ 'is-loading': isLoadingStream }">
-            <img
-              v-for="buffer in frameBuffers"
-              :key="buffer.id"
-              class="preview-panel__frame"
-              :class="{ 'is-active': buffer.isActive }"
-              :src="buffer.src"
-              :alt="`Trame vidéo ${buffer.id}`"
-              @load="handleFrameLoad(buffer.id)"
-              @error="handleFrameError"
+          <div v-if="isLiveCamera" class="preview-panel__stream">
+            <iframe
+              v-if="mirrorSrc"
+              class="preview-panel__mirror"
+              :src="mirrorSrc"
+              title="Flux caméra Panasonic"
+              allowfullscreen
+              loading="lazy"
             />
-            <div v-if="overlayMessage" class="preview-panel__overlay">{{ overlayMessage }}</div>
+            <div v-else-if="overlayMessage" class="preview-panel__overlay">{{ overlayMessage }}</div>
           </div>
           <p v-else>Prévisualisation de {{ camera.name }}</p>
         </template>
@@ -469,21 +313,16 @@ onBeforeUnmount(() => {
   position: relative;
   width: 100%;
   height: 100%;
+  background: #000;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
 }
 
-.preview-panel__frame {
-  position: absolute;
-  inset: 0;
+.preview-panel__mirror {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  opacity: 0;
-  transition: opacity 0.18s ease;
-  background: #000;
-}
-
-.preview-panel__frame.is-active {
-  opacity: 1;
+  border: 0;
 }
 
 .preview-panel__overlay {
