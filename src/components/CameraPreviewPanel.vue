@@ -52,7 +52,7 @@ const overlayMessage = computed(() => {
   }
 
   if (!shouldStream.value) {
-    return null
+    return 'Flux indisponible'
   }
 
   if (streamError.value) {
@@ -66,19 +66,9 @@ const overlayMessage = computed(() => {
   return null
 })
 
-// Endpoints pour UNE SEULE caméra (placeholder CAM 1)
-const MJPEG_URL = '/api/stream/live/mjpeg'
-const SNAPSHOT_URL = '/api/stream/live/snapshot'
-const tick = ref(Date.now())
-
 const statusLabel = computed(() => {
   if (!props.camera) return 'Aucune caméra sélectionnée'
   return props.camera.status === 'online' ? 'Connectée' : 'Hors-ligne'
-})
-
-const snapshotSrc = computed(() => {
-  if (!props.camera) return null
-  return `${SNAPSHOT_URL}?t=${tick.value}`
 })
 
 function handleSurfaceClick() {
@@ -469,6 +459,21 @@ onBeforeUnmount(() => {
   position: relative;
   width: 100%;
   height: 100%;
+  background: #000;
+}
+
+.preview-panel__stream.is-loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    120deg,
+    rgba(15, 23, 42, 0.85),
+    rgba(30, 41, 59, 0.3),
+    rgba(15, 23, 42, 0.85)
+  );
+  animation: shimmer 1.25s infinite;
+  pointer-events: none;
 }
 
 .preview-panel__frame {
@@ -476,10 +481,9 @@ onBeforeUnmount(() => {
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   opacity: 0;
-  transition: opacity 0.18s ease;
-  background: #000;
+  transition: opacity 120ms ease;
 }
 
 .preview-panel__frame.is-active {
@@ -499,6 +503,32 @@ onBeforeUnmount(() => {
   font-size: 0.95rem;
   font-weight: 600;
   letter-spacing: 0.04em;
+}
+
+.preview-panel__actions {
+  position: absolute;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.preview-panel__actions button {
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 999px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  padding: 0.45rem 1.1rem;
+  text-transform: uppercase;
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+
+.preview-panel__actions button:hover {
+  transform: translateY(-1px);
+  background: rgba(30, 41, 59, 0.95);
 }
 
 .preview-panel__details {
@@ -562,45 +592,16 @@ onBeforeUnmount(() => {
 }
 
 .preview-panel__value {
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   color: var(--text-primary);
 }
 
-.preview-panel__actions {
-  position: absolute;
-  left: 50%;
-  bottom: 1.25rem;
-  transform: translateX(-50%);
-  display: inline-flex;
-  gap: 0.75rem;
-  padding: 0.6rem 1rem;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  backdrop-filter: blur(6px);
-}
-
-.preview-panel__actions button {
-  appearance: none;
-  border: none;
-  border-radius: 999px;
-  font-weight: 700;
-  font-size: 0.85rem;
-  padding: 0.55rem 1.75rem;
-  cursor: pointer;
-  transition: transform 0.2s ease, background 0.2s ease;
-  color: #f8fafc;
-}
-
-.preview-panel__actions button.take {
-  background: var(--accent);
-}
-
-.preview-panel__actions button.prbu {
-  background: var(--surface-highlight);
-}
-
-.preview-panel__actions button:hover {
-  transform: translateY(-1px);
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
 }
 </style>
