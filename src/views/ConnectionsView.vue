@@ -15,7 +15,7 @@ const sidebarTab = ref<'connections' | 'control'>('connections')
 
 // La salle compte dix emplacements physiques. On garde leur description pour
 // afficher un placeholder lorsqu’aucune caméra n’est branchée sur un slot.
-const PLACEHOLDER_CATALOG = [
+const placeholderCatalog = [
   {
     id: 'auditorium-wide',
     label: 'Vue générale auditorium',
@@ -122,7 +122,7 @@ type GalleryPlaceholderSlot = {
 
 type GallerySlot = GalleryConnectionSlot | GalleryPlaceholderSlot
 
-const placeholderSlots: GalleryPlaceholderSlot[] = PLACEHOLDER_CATALOG.map((camera) => ({
+const placeholderSlots: GalleryPlaceholderSlot[] = placeholderCatalog.map((camera) => ({
   type: 'placeholder',
   id: `placeholder-${camera.id}`,
   label: camera.label,
@@ -266,7 +266,15 @@ const previewStreamUrl = computed(() => {
   if (activeSlot.value?.type !== 'connection') {
     return null
   }
+
   const { address, httpPort } = activeSlot.value.connection
+
+  // La caméra principale (10.41.39.153) expose son interface live via /live/index.html.
+  // On respecte cette convention pour retrouver exactement la page HTML partagée.
+  if (address === '10.41.39.153') {
+    return `http://${address}/live/index.html`
+  }
+
   return `http://${address}:${httpPort}`
 })
 
@@ -852,7 +860,6 @@ const statusClass: Record<ConnectionStatus, string> = {
 
 .connections-view__preview h3 {
   margin: 0;
-  color: rgba(148, 163, 184, 0.8);
 }
 
 .connections-view__preview-subtitle {
@@ -992,7 +999,10 @@ const statusClass: Record<ConnectionStatus, string> = {
 
 .connections-view__form input,
 .connections-view__form select,
-.connections-view__form textarea {
+connections-view__form textarea,
+.connections-view__grid input,
+.connections-view__grid select,
+.connections-view__grid textarea {
   border-radius: 0.9rem;
   border: 1px solid rgba(148, 163, 184, 0.35);
   background: rgba(15, 23, 42, 0.85);
@@ -1136,7 +1146,8 @@ const statusClass: Record<ConnectionStatus, string> = {
   margin: 0;
 }
 
-.connections-view__details-header p {
+connections-view__details-header p,
+.connections-view__panel-header p {
   margin: 0.35rem 0 0;
   color: rgba(148, 163, 184, 0.8);
 }
@@ -1167,16 +1178,6 @@ const statusClass: Record<ConnectionStatus, string> = {
   flex-direction: column;
   gap: 0.35rem;
   color: rgba(148, 163, 184, 0.85);
-}
-
-.connections-view__grid input,
-.connections-view__grid select,
-.connections-view__grid textarea {
-  border-radius: 0.9rem;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(15, 23, 42, 0.85);
-  color: #e2e8f0;
-  padding: 0.55rem 0.75rem;
 }
 
 .connections-view__toggle {
