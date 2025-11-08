@@ -698,6 +698,19 @@ const statusClass: Record<ConnectionStatus, string> = {
           rappelle à l’opérateur ce qui est prêt avant le démarrage du direct.
         </p>
       </div>
+
+      <section class="connections-view__placeholders">
+        <h4>Caméras placeholder</h4>
+        <p>Ces entrées permettent de documenter l'implantation physique en attendant une vraie découverte automatique.</p>
+        <ul>
+          <!-- Cette liste matérialise la vision métier des emplacements sans créer de vraies connexions. -->
+          <li v-for="camera in placeholderCatalog" :key="camera.id" :class="{ 'connections-view__placeholders-item--active': camera.isActive }">
+            <strong>{{ camera.label }}</strong>
+            <span>{{ camera.location }} • {{ camera.model }}</span>
+            <small>{{ camera.note }}</small>
+          </li>
+        </ul>
+      </section>
     </section>
   </div>
 </template>
@@ -986,7 +999,10 @@ const statusClass: Record<ConnectionStatus, string> = {
 
 .connections-view__form input,
 .connections-view__form select,
-.connections-view__form textarea {
+connections-view__form textarea,
+.connections-view__grid input,
+.connections-view__grid select,
+.connections-view__grid textarea {
   border-radius: 0.9rem;
   border: 1px solid rgba(148, 163, 184, 0.35);
   background: rgba(15, 23, 42, 0.85);
@@ -998,7 +1014,7 @@ const statusClass: Record<ConnectionStatus, string> = {
   resize: vertical;
 }
 
-.connections-view__checkbox {
+.connections-view__form-actions {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -1130,7 +1146,8 @@ const statusClass: Record<ConnectionStatus, string> = {
   margin: 0;
 }
 
-.connections-view__details-header p {
+connections-view__details-header p,
+.connections-view__panel-header p {
   margin: 0.35rem 0 0;
   color: rgba(148, 163, 184, 0.8);
 }
@@ -1161,16 +1178,6 @@ const statusClass: Record<ConnectionStatus, string> = {
   flex-direction: column;
   gap: 0.35rem;
   color: rgba(148, 163, 184, 0.85);
-}
-
-.connections-view__grid input,
-.connections-view__grid select,
-.connections-view__grid textarea {
-  border-radius: 0.9rem;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(15, 23, 42, 0.85);
-  color: #e2e8f0;
-  padding: 0.55rem 0.75rem;
 }
 
 .connections-view__toggle {
