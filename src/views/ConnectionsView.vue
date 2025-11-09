@@ -88,6 +88,13 @@ const placeholderCatalog = [
   },
 ] as const
 
+const placeholderCatalogWithState = computed(() =>
+  placeholderCatalog.map((camera, index) => ({
+    ...camera,
+    isActive: Boolean(connections.value[index]),
+  })),
+)
+
 const MAX_SLOT_COUNT = 10
 const itemsPerPageOptions = [4, 6, 10] as const
 const galleryControls = reactive<{ perPage: number; page: number }>({
@@ -704,7 +711,11 @@ const statusClass: Record<ConnectionStatus, string> = {
         <p>Ces entrées permettent de documenter l'implantation physique en attendant une vraie découverte automatique.</p>
         <ul>
           <!-- Cette liste matérialise la vision métier des emplacements sans créer de vraies connexions. -->
-          <li v-for="camera in placeholderCatalog" :key="camera.id" :class="{ 'connections-view__placeholders-item--active': camera.isActive }">
+          <li
+            v-for="camera in placeholderCatalogWithState"
+            :key="camera.id"
+            :class="{ 'connections-view__placeholders-item--active': camera.isActive }"
+          >
             <strong>{{ camera.label }}</strong>
             <span>{{ camera.location }} • {{ camera.model }}</span>
             <small>{{ camera.note }}</small>
