@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch, watchEffect } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch, watchEffect } from 'vue'
 import { useControlStore } from '../composables/useControlStore'
 import type { ConnectionStatus, ControllerConnection } from '../types/connections'
 
@@ -87,6 +87,13 @@ const placeholderCatalog = [
     note: 'Suivi de l’équipe technique hors plateau.',
   },
 ] as const
+
+const placeholderCatalogWithState = computed(() =>
+  placeholderCatalog.map((camera, index) => ({
+    ...camera,
+    isActive: Boolean(connections.value[index]),
+  })),
+)
 
 const MAX_SLOT_COUNT = 10
 const itemsPerPageOptions = [4, 6, 10] as const
@@ -260,22 +267,248 @@ const previewNote = computed(() => {
   return activeSlot.value.note
 })
 
-// On affiche l’IHM réseau native de la caméra : l’URL reste simple pour laisser
-// l’opérateur se connecter avec les identifiants du fabricant si nécessaire.
-const previewStreamUrl = computed(() => {
+const CAMERA_HOST = 'http://10.41.39.153'
+const SNAPSHOT_ENDPOINT = `${CAMERA_HOST}/cgi-bin/view.cgi`
+const FRAME_INTERVAL_MS = 1000 / 12
+
+type PreviewFrameBuffer = {
+  id: number
+  src: string
+  isActive: boolean
+}
+
+const previewFrameBuffers = ref<PreviewFrameBuffer[]>([
+  { id: 0, src: '', isActive: false },
+  { id: 1, src: '', isActive: false },
+])
+const previewActiveBuffer = ref<number | null>(null)
+const previewFrameSequence = ref(0)
+const previewFrameTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+const isPreviewLoading = ref(false)
+const previewError = ref<string | null>(null)
+const isPreviewStreaming = ref(false)
+
+const shouldShowPreviewStream = computed(() => {
   if (activeSlot.value?.type !== 'connection') {
+    return false
+  }
+
+  return (
+    activeSlot.value.connection.address === '10.41.39.153' &&
+    activeSlot.value.connection.status === 'connected'
+  )
+})
+
+const previewHasFrame = computed(() =>
+  previewFrameBuffers.value.some((buffer) => buffer.isActive && buffer.src.length > 0),
+)
+
+function triggerPreviewCamera(action: 'start' | 'stop') {
+  const image = new Image()
+  image.referrerPolicy = 'no-referrer'
+  const url = new URL(SNAPSHOT_ENDPOINT)
+  url.searchParams.set('action', action)
+  url.searchParams.set('_', Date.now().toString())
+  image.src = url.toString()
+}
+
+function clearPreviewTimer() {
+  if (previewFrameTimer.value !== null) {
+    clearTimeout(previewFrameTimer.value)
+    previewFrameTimer.value = null
+  }
+}
+
+function resetPreviewBuffers() {
+  previewFrameBuffers.value = previewFrameBuffers.value.map((buffer) => ({
+    ...buffer,
+    src: '',
+    isActive: false,
+  }))
+  previewActiveBuffer.value = null
+  previewFrameSequence.value = 0
+}
+
+function buildPreviewSnapshotUrl(sequence: number) {
+  const url = new URL(SNAPSHOT_ENDPOINT)
+  url.searchParams.set('action', 'snapshot')
+  url.searchParams.set('resolution', '0')
+  url.searchParams.set('n', sequence.toString())
+  url.searchParams.set('_', Date.now().toString())
+  return url.toString()
+}
+
+function requestPreviewFrame(bufferId: number) {
+  const index = previewFrameBuffers.value.findIndex((buffer) => buffer.id === bufferId)
+  if (index === -1) {
+    return
+  }
+
+  const currentBuffer = previewFrameBuffers.value[index]
+  if (!currentBuffer) {
+    return
+  }
+
+  const nextSequence = previewFrameSequence.value + 1
+  previewFrameSequence.value = nextSequence
+
+  const nextBuffer: PreviewFrameBuffer = {
+    ...currentBuffer,
+    src: buildPreviewSnapshotUrl(nextSequence),
+  }
+
+  previewFrameBuffers.value.splice(index, 1, nextBuffer)
+}
+
+function schedulePreviewFrame(delay = FRAME_INTERVAL_MS) {
+  if (!isPreviewStreaming.value) {
+    return
+  }
+
+  clearPreviewTimer()
+  previewFrameTimer.value = setTimeout(() => {
+    if (!isPreviewStreaming.value) {
+      return
+    }
+
+    const nextBuffer =
+      previewFrameBuffers.value.find((buffer) => buffer.id !== previewActiveBuffer.value) ??
+      previewFrameBuffers.value[0]
+
+    if (!nextBuffer) {
+      return
+    }
+
+    isPreviewLoading.value = true
+    requestPreviewFrame(nextBuffer.id)
+  }, delay)
+}
+
+function handlePreviewFrameLoad(bufferId: number) {
+  if (!isPreviewStreaming.value) {
+    return
+  }
+
+  previewError.value = null
+  isPreviewLoading.value = false
+  previewActiveBuffer.value = bufferId
+
+  previewFrameBuffers.value = previewFrameBuffers.value.map((buffer) => ({
+    ...buffer,
+    isActive: buffer.id === bufferId,
+  }))
+
+  schedulePreviewFrame()
+}
+
+function handlePreviewFrameError() {
+  if (!isPreviewStreaming.value) {
+    return
+  }
+
+  previewError.value = 'Flux vidéo indisponible'
+  isPreviewLoading.value = false
+  schedulePreviewFrame(1000)
+}
+
+function startPreviewStream() {
+  if (isPreviewStreaming.value) {
+    return
+  }
+
+  isPreviewStreaming.value = true
+  previewError.value = null
+  resetPreviewBuffers()
+  triggerPreviewCamera('start')
+  isPreviewLoading.value = true
+  requestPreviewFrame(previewFrameBuffers.value[0]?.id ?? 0)
+}
+
+function stopPreviewStream() {
+  if (!isPreviewStreaming.value) {
+    return
+  }
+
+  isPreviewStreaming.value = false
+  triggerPreviewCamera('stop')
+  clearPreviewTimer()
+  resetPreviewBuffers()
+  isPreviewLoading.value = false
+}
+
+watch(
+  shouldShowPreviewStream,
+  (value) => {
+    if (value) {
+      startPreviewStream()
+    } else {
+      stopPreviewStream()
+      previewError.value = null
+    }
+  },
+  { immediate: true },
+)
+
+const previewStreamMessage = computed(() => {
+  if (!shouldShowPreviewStream.value) {
     return null
   }
 
-  const { address, httpPort } = activeSlot.value.connection
-
-  // La caméra principale (10.41.39.153) expose son interface live via /live/index.html.
-  // On respecte cette convention pour retrouver exactement la page HTML partagée.
-  if (address === '10.41.39.153') {
-    return `http://${address}/live/index.html`
+  if (previewError.value) {
+    return previewError.value
   }
 
-  return `http://${address}:${httpPort}`
+  if (isPreviewLoading.value && !previewHasFrame.value) {
+    return 'Connexion au flux…'
+  }
+
+  return null
+})
+
+const previewPlaceholderText = computed(() => {
+  if (!activeSlot.value) {
+    return 'Signal en attente'
+  }
+
+  if (activeSlot.value.type === 'placeholder') {
+    return 'Emplacement disponible'
+  }
+
+  if (activeSlot.value.connection.status === 'connected') {
+    return 'Interface caméra'
+  }
+
+  return statusLabels[activeSlot.value.status]
+})
+
+const previewOverlayLabel = computed(() => {
+  if (!activeSlot.value) {
+    return 'Aucun signal'
+  }
+
+  if (activeSlot.value.type === 'placeholder') {
+    return 'Emplacement disponible'
+  }
+
+  if (!shouldShowPreviewStream.value) {
+    return activeSlot.value.connection.status === 'connected'
+      ? 'Interface caméra'
+      : statusLabels[activeSlot.value.status]
+  }
+
+  if (previewError.value) {
+    return 'Flux indisponible'
+  }
+
+  return 'Flux en direct'
+})
+
+const previewOverlayActive = computed(
+  () => shouldShowPreviewStream.value && !previewError.value && previewHasFrame.value,
+)
+
+onBeforeUnmount(() => {
+  stopPreviewStream()
 })
 
 const creationForm = reactive({
@@ -465,28 +698,34 @@ const statusClass: Record<ConnectionStatus, string> = {
         </header>
         <p class="connections-view__preview-subtitle">{{ previewSubtitle }}</p>
         <div class="connections-view__preview-screen">
-          <iframe
-            v-if="previewStreamUrl"
-            :src="previewStreamUrl"
-            title="Flux caméra"
-            class="connections-view__preview-frame"
-            allow="autoplay"
-          ></iframe>
-          <div v-else class="connections-view__preview-placeholder">Signal en attente</div>
+          <template v-if="shouldShowPreviewStream">
+            <div
+              class="connections-view__preview-stream"
+              :class="{ 'is-loading': isPreviewLoading }"
+            >
+              <img
+                v-for="buffer in previewFrameBuffers"
+                :key="buffer.id"
+                class="connections-view__preview-frame"
+                :class="{ 'is-active': buffer.isActive }"
+                :src="buffer.src"
+                :alt="`Trame aperçu ${buffer.id}`"
+                @load="handlePreviewFrameLoad(buffer.id)"
+                @error="handlePreviewFrameError"
+              />
+              <div v-if="previewStreamMessage" class="connections-view__preview-message">
+                {{ previewStreamMessage }}
+              </div>
+            </div>
+          </template>
+          <div v-else class="connections-view__preview-placeholder">
+            {{ previewPlaceholderText }}
+          </div>
           <div
             class="connections-view__preview-overlay"
-            :class="{
-              'connections-view__preview-overlay--active':
-                activeSlot?.type === 'connection' && activeSlot.connection.status === 'connected',
-            }"
+            :class="{ 'connections-view__preview-overlay--active': previewOverlayActive }"
           >
-            {{
-              activeSlot?.type === 'connection'
-                ? activeSlot.connection.status === 'connected'
-                  ? 'Flux en direct'
-                  : 'Interface caméra'
-                : 'Emplacement disponible'
-            }}
+            {{ previewOverlayLabel }}
           </div>
         </div>
         <p v-if="previewNote" class="connections-view__preview-note">{{ previewNote }}</p>
@@ -704,7 +943,11 @@ const statusClass: Record<ConnectionStatus, string> = {
         <p>Ces entrées permettent de documenter l'implantation physique en attendant une vraie découverte automatique.</p>
         <ul>
           <!-- Cette liste matérialise la vision métier des emplacements sans créer de vraies connexions. -->
-          <li v-for="camera in placeholderCatalog" :key="camera.id" :class="{ 'connections-view__placeholders-item--active': camera.isActive }">
+          <li
+            v-for="camera in placeholderCatalogWithState"
+            :key="camera.id"
+            :class="{ 'connections-view__placeholders-item--active': camera.isActive }"
+          >
             <strong>{{ camera.label }}</strong>
             <span>{{ camera.location }} • {{ camera.model }}</span>
             <small>{{ camera.note }}</small>
@@ -879,11 +1122,39 @@ const statusClass: Record<ConnectionStatus, string> = {
   overflow: hidden;
 }
 
-.connections-view__preview-frame {
+.connections-view__preview-stream {
+  position: relative;
   flex: 1;
   width: 100%;
-  border: 0;
   background: rgba(15, 23, 42, 0.85);
+}
+
+.connections-view__preview-stream.is-loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    120deg,
+    rgba(15, 23, 42, 0.85),
+    rgba(30, 41, 59, 0.3),
+    rgba(15, 23, 42, 0.85)
+  );
+  animation: shimmer 1.25s infinite;
+  pointer-events: none;
+}
+
+.connections-view__preview-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.connections-view__preview-frame.is-active {
+  opacity: 1;
 }
 
 .connections-view__preview-placeholder {
@@ -894,6 +1165,21 @@ const statusClass: Record<ConnectionStatus, string> = {
   color: rgba(226, 232, 240, 0.85);
   font-weight: 600;
   letter-spacing: 0.08em;
+  background: rgba(15, 23, 42, 0.85);
+}
+
+.connections-view__preview-message {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  text-align: center;
+  color: rgba(226, 232, 240, 0.9);
+  background: rgba(2, 6, 23, 0.78);
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .connections-view__preview-overlay {
@@ -920,6 +1206,18 @@ const statusClass: Record<ConnectionStatus, string> = {
 .connections-view__preview-note {
   margin: 0;
   color: rgba(148, 163, 184, 0.8);
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 .connections-view__tabs {
