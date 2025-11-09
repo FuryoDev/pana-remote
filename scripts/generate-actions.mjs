@@ -1,7 +1,9 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
+// Localise le dossier du projet indépendamment du répertoire d'exécution.
 const projectRoot = path.resolve(new URL('.', import.meta.url).pathname, '..')
+// Cible de génération pour la liste des actions patrimoniales.
 const outputFile = path.resolve(projectRoot, 'src/data/legacy-actions.generated.ts')
 
 const curatedActions = [
@@ -175,6 +177,11 @@ const curatedActions = [
   },
 ]
 
+/**
+ * Transforme une liste d'actions en fichier TypeScript auto-généré.
+ * Les métadonnées sont sérialisées sous forme de littéraux pour
+ * faciliter la revue des diffs Git et la re-génération.
+ */
 function createFileContent(actions) {
   const header = "// AUTO-GENERATED FILE. Run `node scripts/generate-actions.mjs` to update.\n"
   const importLine = "import type { LegacyActionDefinition } from '../types/actions'\n\n"
@@ -188,6 +195,10 @@ function createFileContent(actions) {
   return `${header}${importLine}export const LEGACY_ACTIONS: LegacyActionDefinition[] = [\n${entries}\n]\n`
 }
 
+/**
+ * Point d'entrée du script : s'assure que le dossier existe, écrit
+ * le contenu généré puis affiche un message récapitulatif.
+ */
 async function main() {
   await fs.mkdir(path.dirname(outputFile), { recursive: true })
   const content = createFileContent(curatedActions)
