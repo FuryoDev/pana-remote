@@ -18,7 +18,15 @@ const emit = defineEmits<{ (e: 'surface-click'): void }>()
 const isSurfaceAlert = ref(false)
 const CAMERA_HOST = 'http://10.41.39.153'
 const SNAPSHOT_ENDPOINT = `${CAMERA_HOST}/cgi-bin/view.cgi`
-const LIVE_MIRROR_URL = `${CAMERA_HOST}/live/index.html`
+
+// Nouveau: endpoints same-origin (proxy backend) pour éviter X-Frame-Options
+const MJPEG_URL = '/api/stream/live/mjpeg'
+const SNAPSHOT_URL = '/api/stream/live/snapshot'
+
+// États UI du flux
+const isLoadingStream = ref(false)
+const streamError = ref<string | null>(null)
+
 const isTestingControls = ref(false)
 const testMessage = ref<string | null>(null)
 const testLog = ref<string[]>([])
@@ -26,16 +34,17 @@ const testLog = ref<string[]>([])
 const isLiveCamera = computed(() => props.camera?.id === 'cam-01')
 const isCameraOnline = computed(() => props.camera?.status === 'online')
 const shouldStream = computed(() => isLiveCamera.value && isCameraOnline.value)
+
 const overlayMessage = computed(() => {
   if (!isCameraOnline.value) return 'Caméra hors ligne'
   if (!shouldStream.value) return 'Flux indisponible'
+  if (streamError.value) return streamError.value
+  if (isLoadingStream.value) return 'Connexion au flux…'
   return null
 })
 
-const mirrorSrc = computed(() => {
-  if (!shouldStream.value) return null
-  return `${LIVE_MIRROR_URL}?t=${Date.now()}`
-})
+const streamSrc = computed(() => (shouldStream.value ? `${MJPEG_URL}?t=${Date.now()}` : null))
+const snapshotSrc = computed(() => (props.camera ? `${SNAPSHOT_URL}?t=${Date.now()}` : null))
 
 const statusLabel = computed(() => {
   if (!props.camera) return 'Aucune caméra sélectionnée'
@@ -140,10 +149,14 @@ function triggerCamera(action: 'start' | 'stop') {
 watch(
   shouldStream,
   (value) => {
+    // On pilote la caméra si nécessaire
     if (value) {
+      isLoadingStream.value = true
+      streamError.value = null
       triggerCamera('start')
     } else {
       triggerCamera('stop')
+      isLoadingStream.value = false
     }
   },
   { immediate: true },
@@ -169,16 +182,26 @@ onBeforeUnmount(() => {
     <div class="preview-panel__surface" :class="{ 'is-alert': isSurfaceAlert }" @click="handleSurfaceClick">
       <div class="preview-panel__video" role="presentation">
         <template v-if="camera">
-          <div v-if="isLiveCamera" class="preview-panel__stream">
-            <iframe
-              v-if="mirrorSrc"
+          <div class="preview-panel__stream" :class="{ 'is-loading': isLoadingStream }">
+            <!-- Flux MJPEG same-origin -->
+            <img
+              v-if="streamSrc"
+              :src="streamSrc"
               class="preview-panel__mirror"
-              :src="mirrorSrc"
-              title="Flux caméra Panasonic"
-              allowfullscreen
-              loading="lazy"
+              :class="{ 'is-active': !isLoadingStream }"
+              alt="Flux caméra (MJPEG)"
+              @load="isLoadingStream = false"
+              @error="isLoadingStream = false; streamError = 'Flux indisponible'"
             />
-            <div v-else-if="overlayMessage" class="preview-panel__overlay">{{ overlayMessage }}</div>
+            <!-- Fallback snapshot -->
+            <img
+              v-else-if="snapshotSrc"
+              :src="snapshotSrc"
+              class="preview-panel__mirror is-active"
+              alt="Snapshot caméra"
+              @error="streamError = 'Aperçu indisponible'"
+            />
+            <div v-if="overlayMessage" class="preview-panel__overlay">{{ overlayMessage }}</div>
           </div>
           <p v-else>Prévisualisation de {{ camera.name }}</p>
         </template>
@@ -303,12 +326,9 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   background: #000;
-  display: flex;
-  align-items: stretch;
-  justify-content: center;
 }
 
-/* Optionnel : effet shimmer pendant le chargement si la classe is-loading est ajoutée */
+/* Effet shimmer pendant le chargement */
 .preview-panel__stream.is-loading::after {
   content: '';
   position: absolute;
@@ -326,13 +346,11 @@ onBeforeUnmount(() => {
 .preview-panel__mirror {
   width: 100%;
   height: 100%;
-  border: 0;
   object-fit: contain;
   opacity: 0;
   transition: opacity 120ms ease;
 }
 
-/* Passez l’iframe à l’état visible lorsque l’événement load est géré côté script */
 .preview-panel__mirror.is-active {
   opacity: 1;
 }
