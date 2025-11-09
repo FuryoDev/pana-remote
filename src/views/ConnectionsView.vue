@@ -1115,7 +1115,7 @@ const statusClass: Record<ConnectionStatus, string> = {
   border-radius: 1rem;
   border: 1px solid rgba(79, 70, 229, 0.25);
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(14, 165, 233, 0.25));
-  min-height: 220px;
+  min-height: 400px;
   display: flex;
   align-items: stretch;
   justify-content: center;
