@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import ReorderableGrid from './draggable/ReorderableGrid.vue'
-import type { ControlDefinition, ControlWidgetInstance } from '../shared/control.js'
+import type { ControlDefinition, ControlLayout, ControlWidgetInstance } from '../shared/control.js'
 import { useControlLayouts } from '../composables/useControlLayouts'
 import { executeControlAction } from '../lib/api/controlActions'
 
@@ -43,6 +43,10 @@ const definitionMap = computed(() => {
   return map
 })
 
+/**
+ * Liste des cartes disposant d'une définition valide.
+ * Permet de masquer automatiquement les widgets orphelins.
+ */
 const activeCards = computed(() =>
   cards.value.filter(
     (card): card is ActiveCard & { definition: ControlDefinition } =>
@@ -50,10 +54,18 @@ const activeCards = computed(() =>
   ),
 )
 
+/**
+ * Contrôles dont la disponibilité est planifiée mais pas encore active.
+ * Ils sont affichés séparément pour informer l'utilisateur.
+ */
 const plannedControls = computed(() =>
   definitions.value.filter((definition) => definition.availability === 'planned'),
 )
 
+/**
+ * Regroupe les contrôles disponibles par catégorie pour alimenter la liste
+ * déroulante. Chaque groupe contient les éléments filtrés par disponibilité.
+ */
 const availableGroups = computed(() => {
   const groups = new Map<string, ControlDefinition[]>()
   for (const definition of definitions.value) {
@@ -75,26 +87,53 @@ const availableGroups = computed(() => {
   }))
 })
 
+/**
+ * Synchronise les cartes affichées avec le layout reçu du composable.
+ * Un indicateur temporaire (isSyncingFromLayout) empêche la boucle
+ * de déclencher un enregistrement lorsqu'on applique la mise à jour locale.
+ */
+function syncCardsFromLayout(nextLayout: ControlLayout | null) {
+  isSyncingFromLayout = true
+
+  if (!nextLayout) {
+    cards.value = []
+  } else {
+    cards.value = nextLayout.widgets.map((widget) => ({
+      id: widget.id,
+      widget,
+      definition: definitionMap.value.get(widget.controlId) ?? null,
+    }))
+  }
+
+  Promise.resolve().then(() => {
+    isSyncingFromLayout = false
+  })
+}
+
+/**
+ * Réinitialise le message de feedback et l'éventuel timer associé.
+ */
+function clearFeedback() {
+  if (feedbackTimer) {
+    clearTimeout(feedbackTimer)
+    feedbackTimer = null
+  }
+
+  feedback.value = null
+}
+
 watch(
   [layout, definitions],
   () => {
-    isSyncingFromLayout = true
-    if (!layout.value) {
-      cards.value = []
-    } else {
-      cards.value = layout.value.widgets.map((widget) => ({
-        id: widget.id,
-        widget,
-        definition: definitionMap.value.get(widget.controlId) ?? null,
-      }))
-    }
-    Promise.resolve().then(() => {
-      isSyncingFromLayout = false
-    })
+    syncCardsFromLayout(layout.value)
   },
   { immediate: true },
 )
 
+/**
+ * Exécute le contrôle sélectionné et affiche un message de feedback.
+ * En cas d'échec, on retourne un message d'erreur lisible à l'utilisateur.
+ */
 async function handleExecute(definition: ControlDefinition) {
   try {
     const message = await executeControlAction(definition.action)
@@ -105,24 +144,31 @@ async function handleExecute(definition: ControlDefinition) {
     feedback.value = err?.message ?? 'Commande impossible à exécuter'
   }
 
-  if (feedbackTimer) {
-    clearTimeout(feedbackTimer)
-  }
+  clearFeedback()
 
   feedbackTimer = window.setTimeout(() => {
-    feedback.value = null
-    feedbackTimer = null
+    clearFeedback()
   }, 4000)
 }
 
+/**
+ * Ajoute un contrôle depuis le catalogue au layout courant.
+ */
 async function handleAdd(controlId: string) {
   await addControl(controlId)
 }
 
+/**
+ * Supprime un widget du layout en conservant la cohérence de la grille.
+ */
 async function handleRemove(widgetId: string) {
   await removeControl(widgetId)
 }
 
+/**
+ * Sauvegarde le nouvel ordre des cartes lorsqu'un drag & drop se termine.
+ * La fonction ignore les évènements déclenchés par la synchronisation interne.
+ */
 async function handleDragEnd(nextCards?: unknown) {
   if (!layout.value || isSyncingFromLayout) {
     return
@@ -143,9 +189,7 @@ async function handleDragEnd(nextCards?: unknown) {
 }
 
 onBeforeUnmount(() => {
-  if (feedbackTimer) {
-    clearTimeout(feedbackTimer)
-  }
+  clearFeedback()
 })
 </script>
 
