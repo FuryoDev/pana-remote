@@ -22,6 +22,12 @@ const COLUMN_WIDTH = 2
 const COLUMN_COUNT = 4
 const ROW_HEIGHT = 2
 
+/**
+ * Positionne un widget sur la grille en fonction de son index.
+ * La grille est découpée en colonnes/lignes fixes correspondant
+ * aux dimensions du layout côté serveur. La fonction se contente
+ * de calculer les coordonnées (x, y) sans modifier la taille du widget.
+ */
 function computeGridPosition(index: number, widget: ControlWidgetInstance): ControlWidgetInstance {
   const column = index % COLUMN_COUNT
   const row = Math.floor(index / COLUMN_COUNT)
@@ -36,6 +42,11 @@ export function useControlLayouts({ cameraId }: UseControlLayoutsOptions): Layou
   const error = ref<string | null>(null)
   let catalogLoaded = false
 
+  /**
+   * Récupère une seule fois le catalogue complet des contrôles
+   * disponibles. Les résultats sont mis en cache afin d'éviter
+   * de répéter l'appel réseau lors d'un changement de caméra.
+   */
   async function loadCatalog() {
     if (catalogLoaded) {
       return
@@ -55,6 +66,10 @@ export function useControlLayouts({ cameraId }: UseControlLayoutsOptions): Layou
     }
   }
 
+  /**
+   * Charge le layout associé à la caméra fournie. L'appel met à jour
+   * l'état de chargement et efface toute erreur précédente.
+   */
   async function loadLayout(currentCameraId: string | null) {
     if (!currentCameraId) {
       layout.value = null
@@ -78,6 +93,11 @@ export function useControlLayouts({ cameraId }: UseControlLayoutsOptions): Layou
     }
   }
 
+  /**
+   * Envoie la configuration au serveur et met à jour l'état local
+   * lorsque la persistance réussit. Aucune tentative n'est faite si
+   * la configuration est nulle (par exemple aucune caméra sélectionnée).
+   */
   async function persist(next: ControlLayout | null) {
     if (!next) {
       return
@@ -105,6 +125,11 @@ export function useControlLayouts({ cameraId }: UseControlLayoutsOptions): Layou
     }
   }
 
+  /**
+   * Construit un widget prêt à être ajouté à la grille à partir de
+   * l'identifiant d'un contrôle. Retourne null si le contrôle n'existe pas
+   * dans le catalogue chargé.
+   */
   function buildWidget(controlId: string): ControlWidgetInstance | null {
     const definition = definitions.value.find((item) => item.id === controlId)
     if (!definition) {
@@ -125,6 +150,10 @@ export function useControlLayouts({ cameraId }: UseControlLayoutsOptions): Layou
     return computeGridPosition(currentWidgets.length, base)
   }
 
+  /**
+   * Ajoute un contrôle au layout courant puis persiste la nouvelle
+   * configuration côté serveur.
+   */
   async function addControl(controlId: string) {
     if (!layout.value) {
       return
@@ -143,6 +172,10 @@ export function useControlLayouts({ cameraId }: UseControlLayoutsOptions): Layou
     await persist(nextLayout)
   }
 
+  /**
+   * Retire un widget du layout courant en recalculant la position
+   * de chaque élément restant pour conserver une grille compacte.
+   */
   async function removeControl(widgetId: string) {
     if (!layout.value) {
       return
@@ -158,6 +191,10 @@ export function useControlLayouts({ cameraId }: UseControlLayoutsOptions): Layou
     await persist(nextLayout)
   }
 
+  /**
+   * Réordonne les widgets selon l'ordre fourni et s'assure que les
+   * éléments absents de la liste sont ajoutés en fin de collection.
+   */
   async function reorder(order: string[]) {
     if (!layout.value) {
       return
@@ -188,6 +225,9 @@ export function useControlLayouts({ cameraId }: UseControlLayoutsOptions): Layou
     await persist(nextLayout)
   }
 
+  /**
+   * Recharge le catalogue et le layout actuel. Utile pour un refresh manuel.
+   */
   async function refresh() {
     await loadCatalog()
     await loadLayout(cameraId.value)
@@ -198,6 +238,7 @@ export function useControlLayouts({ cameraId }: UseControlLayoutsOptions): Layou
     await loadLayout(cameraId.value)
   })
 
+  // Lorsque la caméra change, on recharge le layout associé.
   watch(cameraId, async (next) => {
     await loadLayout(next)
   })
