@@ -36,7 +36,6 @@ const frameTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const isLoadingStream = ref(false)
 const streamError = ref<string | null>(null)
 const isStreamActive = ref(false)
-
 const isLiveCamera = computed(() => props.camera?.id === 'cam-01')
 const isCameraOnline = computed(() => props.camera?.status === 'online')
 const shouldStream = computed(() => isLiveCamera.value && isCameraOnline.value)
@@ -66,6 +65,7 @@ const overlayMessage = computed(() => {
 // Endpoints pour UNE SEULE caméra (placeholder CAM 1)
 const MJPEG_URL = '/api/stream/live/mjpeg'
 const SNAPSHOT_URL = '/api/stream/live/snapshot'
+const tick = ref(Date.now())
 
 const statusLabel = computed(() => {
   if (!props.camera) return 'Aucune caméra sélectionnée'

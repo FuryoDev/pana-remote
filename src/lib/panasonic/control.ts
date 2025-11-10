@@ -34,9 +34,23 @@ function formatSpeed(value: number): string {
   return clamp(Math.round(value), 0, 99).toString().padStart(2, '0')
 }
 
+function formatPanTiltCoordinate(value: number): string {
+  const clamped = clamp(Math.round(value), 0, 0xffff)
+  return clamped.toString(16).padStart(4, '0').toUpperCase()
+}
+
+function sanitizePrefixedPayload(payload: string, prefix: string): string {
+  if (!payload) {
+    return ''
+  }
+
+  return payload.startsWith(prefix) ? payload.slice(prefix.length) : payload
+}
+
 export type ZoomDirection = 'in' | 'out' | 'stop'
 export type StreamProtocol = 'rtmp' | 'srt' | 'ts'
 export type StreamCommand = 'start' | 'stop'
+export type FocusDirection = 'near' | 'far' | 'stop'
 
 export interface CameraStatus {
   uid: string
@@ -51,6 +65,14 @@ export interface CameraInfo {
   serialNumber: string | null
   operationTime: number | null
   activationCounter: number | null
+}
+
+export interface PanTiltZoomFocusStatus {
+  pan: number
+  tilt: number
+  zoom: number
+  focus: number
+  iris: number
 }
 
 interface SystemInfoPayload {
@@ -161,6 +183,65 @@ export class PanasonicCameraService {
 
   async autofocus(enabled: boolean) {
     return this.client.aw_cam(`OAF:${enabled ? 1 : 0}`, '1')
+  }
+
+  async focus(direction: FocusDirection, speed?: number) {
+    const applied = clamp(Math.round(speed ?? DEFAULT_SPEED), 2, 98)
+    const delta = Math.round(applied / 2)
+
+    let focusValue: number
+    switch (direction) {
+      case 'near':
+        focusValue = 50 - delta
+        break
+      case 'far':
+        focusValue = 50 + delta
+        break
+      case 'stop':
+      default:
+        focusValue = 50
+        break
+    }
+
+    const command = `#F${formatSpeed(clamp(focusValue, 0, 99))}`
+    return this.client.aw_ptz(command, '1')
+  }
+
+  async setPanTiltSpeed(pan: number, tilt: number) {
+    const command = `#PTS${formatSpeed(pan)}${formatSpeed(tilt)}`
+    return this.client.aw_ptz(command, '1')
+  }
+
+  async moveTo(pan: number, tilt: number) {
+    const command = `#APC${formatPanTiltCoordinate(pan)}${formatPanTiltCoordinate(tilt)}`
+    return this.client.aw_ptz(command, '1')
+  }
+
+  async getPanTiltZoomFocus(): Promise<PanTiltZoomFocusStatus> {
+    const payload = await this.client.aw_ptz('#PTV', '1')
+    const body = sanitizePrefixedPayload(payload, 'pTV')
+
+    if (body.length < 17) {
+      throw new Error('Unexpected camera payload')
+    }
+
+    const panHex = body.slice(0, 4)
+    const tiltHex = body.slice(4, 8)
+    const zoomHex = body.slice(8, 11)
+    const focusHex = body.slice(11, 14)
+    const irisHex = body.slice(14, 17)
+
+    const pan = Number.parseInt(panHex, 16)
+    const tilt = Number.parseInt(tiltHex, 16)
+    const zoom = Number.parseInt(zoomHex, 16)
+    const focus = Number.parseInt(focusHex, 16)
+    const iris = Number.parseInt(irisHex, 16)
+
+    if ([pan, tilt, zoom, focus, iris].some((value) => Number.isNaN(value))) {
+      throw new Error('Invalid PTZ payload returned by the camera')
+    }
+
+    return { pan, tilt, zoom, focus, iris }
   }
 
   async stream(protocol: StreamProtocol, command: StreamCommand) {

@@ -2,7 +2,10 @@ import cors from 'cors'
 import express from 'express'
 import { log } from '../lib/logger.js'
 import { PanasonicCameraClient, PanasonicCameraService } from '../lib/panasonic/index.js'
+import { createControlRouter } from './routes/controlLayouts.js'
+import { createLiveStreamRouter } from './routes/liveStream.js'
 import type {
+  FocusDirection,
   PtzDirection,
   StreamCommand,
   StreamProtocol,
@@ -65,6 +68,58 @@ app.post('/api/ptz/move', async (req, res) => {
   }
 })
 
+app.post('/api/ptz/speed', async (req, res) => {
+  try {
+    const pan = Number(req.body?.pan)
+    const tilt = Number(req.body?.tilt)
+
+    if (!Number.isFinite(pan) || !Number.isFinite(tilt)) {
+      return res.status(400).json({ error: 'pan and tilt must be numeric' })
+    }
+
+    if (pan < 0 || pan > 99 || tilt < 0 || tilt > 99) {
+      return res.status(400).json({ error: 'pan and tilt must be between 0 and 99' })
+    }
+
+    const response = await service.setPanTiltSpeed(pan, tilt)
+    res.send(response)
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.get('/api/ptz/location', async (_req, res) => {
+  try {
+    const status = await service.getPanTiltZoomFocus()
+    res.json({ ...status, receivedAt: new Date().toISOString() })
+  } catch (error: any) {
+    log.error(error)
+    res.status(502).json({ error: error.message })
+  }
+})
+
+app.post('/api/ptz/location', async (req, res) => {
+  try {
+    const pan = Number(req.body?.pan)
+    const tilt = Number(req.body?.tilt)
+
+    if (!Number.isFinite(pan) || !Number.isFinite(tilt)) {
+      return res.status(400).json({ error: 'pan and tilt must be numeric' })
+    }
+
+    if (pan < 0 || pan > 0xffff || tilt < 0 || tilt > 0xffff) {
+      return res.status(400).json({ error: 'pan and tilt must be between 0 and 65535' })
+    }
+
+    const response = await service.moveTo(pan, tilt)
+    res.send(response)
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
 app.post('/api/preset/recall', async (req, res) => {
   try {
     const preset = Number(req.body?.n ?? 1)
@@ -102,6 +157,26 @@ app.post('/api/camera/autofocus', async (req, res) => {
     const enabled = Boolean(req.body?.enabled)
     const response = await service.autofocus(enabled)
     res.json({ success: true, raw: response })
+  } catch (error: any) {
+    log.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.post('/api/camera/focus', async (req, res) => {
+  try {
+    const direction = req.body?.direction as FocusDirection | undefined
+    const allowed: FocusDirection[] = ['near', 'far', 'stop']
+
+    if (!direction || !allowed.includes(direction)) {
+      return res.status(400).json({ error: 'direction must be "near", "far" or "stop"' })
+    }
+
+    const rawSpeed = Number(req.body?.speed)
+    const speed = Number.isFinite(rawSpeed) ? rawSpeed : undefined
+
+    const response = await service.focus(direction, speed)
+    res.send(response)
   } catch (error: any) {
     log.error(error)
     res.status(500).json({ error: error.message })
