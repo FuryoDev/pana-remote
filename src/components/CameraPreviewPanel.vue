@@ -26,11 +26,7 @@ const SNAPSHOT_URL = '/api/stream/live/snapshot'
 // États UI du flux
 const isLoadingStream = ref(false)
 const streamError = ref<string | null>(null)
-
-const isTestingControls = ref(false)
-const testMessage = ref<string | null>(null)
-const testLog = ref<string[]>([])
-
+const isStreamActive = ref(false)
 const isLiveCamera = computed(() => props.camera?.id === 'cam-01')
 const isCameraOnline = computed(() => props.camera?.status === 'online')
 const shouldStream = computed(() => isLiveCamera.value && isCameraOnline.value)
@@ -43,8 +39,10 @@ const overlayMessage = computed(() => {
   return null
 })
 
-const streamSrc = computed(() => (shouldStream.value ? `${MJPEG_URL}?t=${Date.now()}` : null))
-const snapshotSrc = computed(() => (props.camera ? `${SNAPSHOT_URL}?t=${Date.now()}` : null))
+// Endpoints pour UNE SEULE caméra (placeholder CAM 1)
+const MJPEG_URL = '/api/stream/live/mjpeg'
+const SNAPSHOT_URL = '/api/stream/live/snapshot'
+const tick = ref(Date.now())
 
 const statusLabel = computed(() => {
   if (!props.camera) return 'Aucune caméra sélectionnée'
